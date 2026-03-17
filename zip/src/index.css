@@ -1,0 +1,97 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: 'DM Sans', sans-serif;
+  --font-serif: 'Fraunces', serif;
+  
+  --color-bg: var(--theme-bg);
+  --color-surface: var(--theme-surface);
+  --color-surface-raised: var(--theme-surface-raised);
+  --color-border: var(--theme-border);
+  --color-text-primary: var(--theme-text-primary);
+  --color-text-secondary: var(--theme-text-secondary);
+  --color-text-tertiary: var(--theme-text-tertiary);
+  --color-accent: var(--theme-accent);
+  --color-accent-dim: var(--theme-accent-dim);
+  --color-accent-glow: var(--theme-accent-glow);
+  --color-red: var(--theme-red);
+  --color-green: var(--theme-green);
+}
+
+:root {
+  --theme-bg: #0D0C0A;
+  --theme-surface: #141310;
+  --theme-surface-raised: #1A1916;
+  --theme-border: rgba(255, 255, 255, 0.07);
+  --theme-text-primary: #F0EDE6;
+  --theme-text-secondary: rgba(240, 237, 230, 0.5);
+  --theme-text-tertiary: rgba(240, 237, 230, 0.25);
+  --theme-accent: #D4714A;
+  --theme-accent-dim: rgba(212, 113, 74, 0.15);
+  --theme-accent-glow: rgba(212, 113, 74, 0.08);
+  --theme-red: #C0614A;
+  --theme-green: #7A9E7E;
+}
+
+.light {
+  --theme-bg: #F9F8F6;
+  --theme-surface: #F2EFEA;
+  --theme-surface-raised: #EBE7E0;
+  --theme-border: rgba(0, 0, 0, 0.08);
+  --theme-text-primary: #1A1A1A;
+  --theme-text-secondary: rgba(26, 26, 26, 0.6);
+  --theme-text-tertiary: rgba(26, 26, 26, 0.4);
+  --theme-accent: #C25A30;
+  --theme-accent-dim: rgba(194, 90, 48, 0.12);
+  --theme-accent-glow: rgba(194, 90, 48, 0.06);
+  --theme-red: #B04A35;
+  --theme-green: #5C8060;
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  background-color: var(--color-bg);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+  min-height: 100vh;
+  max-width: 420px;
+  margin: 0 auto;
+  padding: 0 0 120px 0;
+  overflow-x: hidden;
+  position: relative;
+}
+
+/* Grain overlay */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 100;
+  opacity: 0.4;
+}
+
+/* Animations */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-up {
+  animation: fadeUp 0.5s cubic-bezier(0.0, 0.0, 0.2, 1) both;
+}
+
+.delay-50 { animation-delay: 0.05s; }
+.delay-100 { animation-delay: 0.1s; }
+.delay-150 { animation-delay: 0.15s; }
+.delay-200 { animation-delay: 0.2s; }
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 0px;
+  background: transparent;
+}
