@@ -20,17 +20,17 @@
 
 :root {
   --theme-bg: #0D0C0A;
-  --theme-surface: #141310;
-  --theme-surface-raised: #1A1916;
-  --theme-border: rgba(255, 255, 255, 0.07);
-  --theme-text-primary: #F0EDE6;
-  --theme-text-secondary: rgba(240, 237, 230, 0.5);
-  --theme-text-tertiary: rgba(240, 237, 230, 0.25);
-  --theme-accent: #D4714A;
-  --theme-accent-dim: rgba(212, 113, 74, 0.15);
-  --theme-accent-glow: rgba(212, 113, 74, 0.08);
-  --theme-red: #C0614A;
-  --theme-green: #7A9E7E;
+  --theme-surface: #1C1B19;
+  --theme-surface-raised: #282624;
+  --theme-border: rgba(255, 255, 255, 0.15);
+  --theme-text-primary: #FFFFFF;
+  --theme-text-secondary: rgba(255, 255, 255, 0.75);
+  --theme-text-tertiary: rgba(255, 255, 255, 0.5);
+  --theme-accent: #E87F55;
+  --theme-accent-dim: rgba(232, 127, 85, 0.2);
+  --theme-accent-glow: rgba(232, 127, 85, 0.12);
+  --theme-red: #D76A50;
+  --theme-green: #8CBF92;
 }
 
 .light {
@@ -72,7 +72,7 @@ body::before {
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
   pointer-events: none;
   z-index: 100;
-  opacity: 0.4;
+  opacity: 0.2;
 }
 
 /* Animations */
