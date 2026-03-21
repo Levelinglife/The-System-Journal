@@ -1,70 +1,180 @@
-import { useState, useEffect } from 'react';
-import { motion } from 'motion/react';
-import { Send, Video, Link as LinkIcon, CheckCircle2, AlertTriangle, Shield, ShieldCheck } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+import { ArrowDown, ArrowUp, Send, Video, Link as LinkIcon, ShieldCheck } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
 import Anthropic from '@anthropic-ai/sdk';
-import { Goal, Submission, UserProfile, ScoreHistory } from '../types';
+import {
+  Goal, Submission, UserProfile, ScoreHistory, InputLog,
+  INPUT_CATEGORIES, YOUTUBE_SUBCATEGORIES, OUTPUT_CATEGORIES,
+  FITNESS_TYPES, DURATION_PRESETS, MOOD_EMOJIS,
+  getInputScoreImpact
+} from '../types';
 import { db } from '../firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 
-export default function SubmitPage({ 
-  user, 
-  profile, 
-  onUpdateProfile 
-}: { 
-  user: any, 
+// Score celebration component
+function ScoreCelebration({ score, visible }: { score: number; visible: boolean }) {
+  if (!visible) return null;
+  return (
+    <motion.div
+      initial={{ opacity: 1, y: 0, scale: 1 }}
+      animate={{ opacity: 0, y: -80, scale: 1.5 }}
+      transition={{ duration: 1.2, ease: 'easeOut' }}
+      className="fixed top-1/3 left-1/2 -translate-x-1/2 z-[200] pointer-events-none"
+    >
+      <span className="text-4xl font-serif font-bold text-accent drop-shadow-2xl">
+        {score > 0 ? '+' : ''}{score} ✨
+      </span>
+    </motion.div>
+  );
+}
+
+export default function SubmitPage({
+  user,
+  profile,
+  onUpdateProfile
+}: {
+  user: any,
   profile: UserProfile | null,
   onUpdateProfile: (updates: Partial<UserProfile>) => void
 }) {
-  const [text, setText] = useState('');
-  const [proofUrl, setProofUrl] = useState('');
-  const [proofType, setProofType] = useState<'url' | 'file'>('url');
-  const [fileBase64, setFileBase64] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [feedback, setFeedback] = useState<string | null>(null);
-  const [aiScore, setAiScore] = useState<number | null>(null);
-  const [hasSubmittedToday, setHasSubmittedToday] = useState(false);
-  const [todayGoals, setTodayGoals] = useState<Goal[]>([]);
+  const [activeSection, setActiveSection] = useState<'input' | 'output'>('output');
 
+  // INPUT state
+  const [inputCategory, setInputCategory] = useState<string | null>(null);
+  const [inputSubcategory, setInputSubcategory] = useState<string | null>(null);
+  const [inputDuration, setInputDuration] = useState<number | null>(null);
+  const [inputMood, setInputMood] = useState<number | null>(null);
+  const [inputSaving, setInputSaving] = useState(false);
+
+  // OUTPUT state
+  const [outputCategory, setOutputCategory] = useState<string | null>(null);
+  const [outputText, setOutputText] = useState('');
+  const [proofUrl, setProofUrl] = useState('');
+  const [proofType, setProofType] = useState<'url' | 'file' | 'none'>('none');
+  const [fileBase64, setFileBase64] = useState<string | null>(null);
+  const [outputMood, setOutputMood] = useState<number | null>(null);
+  const [outputSaving, setOutputSaving] = useState(false);
+
+  // Fitness sub-fields
+  const [fitnessType, setFitnessType] = useState<string | null>(null);
+  const [fitnessIntensity, setFitnessIntensity] = useState<'Low' | 'Medium' | 'High' | null>(null);
+  const [fitnessDuration, setFitnessDuration] = useState<number | null>(null);
+
+  // AI model
   const [aiModel, setAiModel] = useState<
-    'gemini-2.5-flash' | 
-    'gemini-3-flash-preview' | 
-    'gemini-3.1-pro-preview' | 
+    'gemini-2.5-flash' |
+    'gemini-3-flash-preview' |
+    'gemini-3.1-pro-preview' |
     'claude-3-5-sonnet-latest'
   >('gemini-3-flash-preview');
 
+  // Celebration
+  const [celebration, setCelebration] = useState<{ score: number; key: number } | null>(null);
+
+  // Feedback after output submit
+  const [outputFeedback, setOutputFeedback] = useState<string | null>(null);
+  const [outputScore, setOutputScore] = useState<number | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Goals context for AI
+  const [todayGoals, setTodayGoals] = useState<Goal[]>([]);
+
   const todayStr = new Date().toISOString().split('T')[0];
 
-  useEffect(() => {
-    const fetchTodayData = async () => {
-      if (!user) return;
-      
-      // Check for today's submission
-      const submissions = JSON.parse(localStorage.getItem('king-submissions') || '[]');
-      const todaySub = submissions.find((s: Submission) => s.date === todayStr);
-      if (todaySub) {
-        setHasSubmittedToday(true);
-        setFeedback(todaySub.feedback);
-        setAiScore(todaySub.score);
-      }
+  // Compute today's used entertainment minutes
+  const todayInputs: InputLog[] = useMemo(() => {
+    const all: InputLog[] = JSON.parse(localStorage.getItem('king-inputs') || '[]');
+    return all.filter(i => i.date === todayStr);
+  }, [todayStr, inputSaving]); // re-compute after saving
 
-      // Fetch today's goals for context
+  const entertainmentUsed = useMemo(() => {
+    return todayInputs
+      .filter(i => !(i.category === 'youtube' && i.subcategory === 'learning'))
+      .reduce((sum, i) => sum + i.durationMinutes, 0);
+  }, [todayInputs]);
+
+  const learningUsed = useMemo(() => {
+    return todayInputs
+      .filter(i => i.category === 'youtube' && i.subcategory === 'learning')
+      .reduce((sum, i) => sum + i.durationMinutes, 0);
+  }, [todayInputs]);
+
+  const entertainmentQuota = profile?.quotas?.entertainment || 60;
+  const learningQuota = profile?.quotas?.learning || 60;
+
+  useEffect(() => {
+    const fetchGoals = async () => {
+      if (!user) return;
       try {
         const q = query(
           collection(db, 'users', user.uid, 'goals'),
           where('date', '==', todayStr)
         );
         const snapshot = await getDocs(q);
-        const goals = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Goal[];
-        setTodayGoals(goals);
+        setTodayGoals(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Goal[]);
       } catch (err) {
-        console.error("Error fetching goals for submission context:", err);
+        console.error("Error fetching goals:", err);
       }
     };
-
-    fetchTodayData();
+    fetchGoals();
   }, [user, todayStr]);
+
+  // ─── INPUT LOGGING ───────────────────────────────────────────────
+
+  const resetInputForm = () => {
+    setInputCategory(null);
+    setInputSubcategory(null);
+    setInputDuration(null);
+    setInputMood(null);
+  };
+
+  const handleLogInput = () => {
+    if (!inputCategory || !inputDuration) return;
+    if (inputCategory === 'youtube' && !inputSubcategory) return;
+    setInputSaving(true);
+
+    const scoreImpact = getInputScoreImpact(
+      inputCategory,
+      inputSubcategory || undefined,
+      inputDuration,
+      entertainmentUsed,
+      entertainmentQuota
+    );
+
+    const entry: InputLog = {
+      id: Date.now().toString(),
+      category: inputCategory,
+      subcategory: inputSubcategory || undefined,
+      durationMinutes: inputDuration,
+      date: todayStr,
+      scoreImpact,
+      mood: inputMood || undefined,
+      createdAt: Date.now(),
+    };
+
+    const allInputs: InputLog[] = JSON.parse(localStorage.getItem('king-inputs') || '[]');
+    localStorage.setItem('king-inputs', JSON.stringify([...allInputs, entry]));
+
+    // Update score
+    if (scoreImpact !== 0) {
+      const newScore = (profile?.score || 0) + scoreImpact;
+      onUpdateProfile({ score: newScore, lastCheckin: todayStr });
+
+      // Update score history
+      const history: ScoreHistory[] = JSON.parse(localStorage.getItem('king-score') || '[]');
+      localStorage.setItem('king-score', JSON.stringify([...history, { date: todayStr, score: newScore }]));
+    }
+
+    // Show celebration
+    setCelebration({ score: scoreImpact, key: Date.now() });
+    setTimeout(() => setCelebration(null), 1500);
+
+    resetInputForm();
+    setInputSaving(false);
+  };
+
+  // ─── OUTPUT LOGGING ──────────────────────────────────────────────
 
   const handleFileChange = (e: any) => {
     const file = e.target.files?.[0];
@@ -78,305 +188,658 @@ export default function SubmitPage({
     }
   };
 
-  const handleSubmit = async () => {
-    if (!text.trim() || !user) return;
-    setSubmitting(true);
+  const getBaseScore = (cat: string): number => {
+    if (cat === 'fitness') {
+      if (fitnessIntensity === 'High') return 22;
+      if (fitnessIntensity === 'Medium') return 15;
+      return 10;
+    }
+    const found = OUTPUT_CATEGORIES.find(c => c.id === cat);
+    return found ? found.baseScore : 10;
+  };
+
+  const shouldUseAI = (cat: string): boolean => {
+    return ['writing', 'scripting', 'video-editing', 'website', 'problem-solving'].includes(cat) && outputText.trim().length > 20;
+  };
+
+  const handleSubmitOutput = async () => {
+    if (!outputCategory || !user) return;
+    if (outputCategory === 'fitness' && (!fitnessType || !fitnessIntensity || !fitnessDuration)) return;
+    setOutputSaving(true);
     setErrorMsg(null);
 
+    let score = getBaseScore(outputCategory);
+    let feedbackText = "Output logged. Keep building.";
+
     try {
-      const keys = JSON.parse(localStorage.getItem('king-system-keys') || '{}');
-      
-      const goalsContext = todayGoals.length > 0 
-        ? todayGoals.map(g => `- ${g.text} (${g.done ? 'DONE' : 'NOT DONE'})`).join('\n')
-        : "No specific goals set for today.";
+      // AI evaluation for rich submissions
+      if (shouldUseAI(outputCategory)) {
+        const keys = JSON.parse(localStorage.getItem('king-system-keys') || '{}');
+        const goalsContext = todayGoals.length > 0
+          ? todayGoals.map(g => `- ${g.text} (${g.done ? 'DONE' : 'NOT DONE'})`).join('\n')
+          : "No specific goals set.";
 
-      const prompt = `
-        You are "The Guide", a supportive, wise, and highly encouraging mentor for someone on a journey of personal growth. 
-        Your task is to evaluate their daily submission and provide warm, constructive feedback that fuels their motivation.
+        const prompt = `
+          You are "The Guide", a supportive and encouraging mentor.
+          Evaluate this person's creative output and provide brief, warm feedback.
 
-        USER CONTEXT:
-        - Current Streak: ${profile?.streak || 0} days
-        - Total Score: ${profile?.score || 0} points
-        - Today's Objectives:
-        ${goalsContext}
+          USER CONTEXT:
+          - Streak: ${profile?.streak || 0} days
+          - Score: ${profile?.score || 0}
+          - Today's Goals:\n${goalsContext}
 
-        SUBMISSION:
-        - Report: ${text}
-        - Proof: ${proofType === 'url' ? proofUrl : 'Video File Uploaded'}
+          OUTPUT TYPE: ${outputCategory}
+          DESCRIPTION: ${outputText}
+          PROOF: ${proofType === 'url' ? proofUrl : proofType === 'file' ? 'File uploaded' : 'None'}
 
-        EVALUATION CRITERIA:
-        1. Celebration: Find something positive in their effort, no matter how small.
-        2. Encouragement: Use language that builds confidence and resilience.
-        3. Constructive Growth: If they missed a goal, frame it as a learning opportunity for tomorrow.
-        4. Momentum: Acknowledge their streak and the consistency they are building.
+          Return ONLY valid JSON:
+          {"score": 1-10, "feedback": "Brief encouraging message (max 80 words)"}
+        `;
 
-        OUTPUT FORMAT:
-        Return ONLY a valid JSON object with:
-        - "score": A number from 1 to 10. Use this to reflect their level of engagement and effort.
-        - "feedback": A warm, inspiring message (max 120 words). Focus on their potential and the value of their work.
-        - "instruction": One gentle, encouraging suggestion for tomorrow to keep their momentum.
-
-        Example JSON: {"score": 8, "feedback": "Your dedication today is truly inspiring. You faced the challenges and showed up for yourself. This consistency is the foundation of your future success.", "instruction": "Tomorrow, try to find one moment of joy in your work. You're doing great."}
-      `;
-
-      let score = 5;
-      let feedbackText = "Submission received.";
-      let instructionText = "";
-
-      if (aiModel.startsWith('claude')) {
-        if (!keys.anthropic) {
-          throw new Error("Anthropic API key is missing. Please add it in The Rules (System) page.");
+        if (aiModel.startsWith('claude')) {
+          if (!keys.anthropic) throw new Error("Add Anthropic API key in Rules page.");
+          const anthropic = new Anthropic({ apiKey: keys.anthropic, dangerouslyAllowBrowser: true });
+          const msg = await anthropic.messages.create({
+            model: aiModel,
+            max_tokens: 300,
+            system: "You are 'The Guide'. Warm, supportive. Return ONLY JSON. No markdown.",
+            messages: [{ role: 'user', content: prompt }]
+          });
+          const text = msg.content[0].type === 'text' ? msg.content[0].text : '{}';
+          const result = JSON.parse(text.replace(/```json/g, '').replace(/```/g, '').trim());
+          score = (result.score || 5) * 2 + getBaseScore(outputCategory);
+          feedbackText = result.feedback || feedbackText;
+        } else {
+          const apiKey = keys.gemini || '';
+          if (!apiKey) throw new Error("Add Gemini API key in Rules page.");
+          const ai = new GoogleGenAI({ apiKey });
+          const response = await ai.models.generateContent({
+            model: aiModel,
+            contents: prompt,
+            config: { responseMimeType: "application/json" }
+          });
+          const result = JSON.parse(response.text || '{}');
+          score = (result.score || 5) * 2 + getBaseScore(outputCategory);
+          feedbackText = result.feedback || feedbackText;
         }
-        const anthropic = new Anthropic({ apiKey: keys.anthropic, dangerouslyAllowBrowser: true });
-        const msg = await anthropic.messages.create({
-          model: aiModel,
-          max_tokens: 400,
-          system: "You are 'The Guide'. Your tone is warm, supportive, and encouraging. Return ONLY JSON. No preamble. No markdown.",
-          messages: [{ role: 'user', content: prompt }]
-        });
-        
-        const responseText = msg.content[0].type === 'text' ? msg.content[0].text : '{}';
-        const cleanedText = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
-        const result = JSON.parse(cleanedText || '{}');
-        score = result.score || 5;
-        feedbackText = result.feedback || "Submission received.";
-        instructionText = result.instruction || "";
-      } else {
-        const apiKey = keys.gemini || process.env.GEMINI_API_KEY || '';
-        if (!apiKey) {
-          throw new Error("Gemini API key is missing.");
-        }
-        const ai = new GoogleGenAI({ apiKey });
-        const response = await ai.models.generateContent({
-          model: aiModel,
-          contents: prompt,
-          config: {
-            responseMimeType: "application/json"
-          }
-        });
-
-        const result = JSON.parse(response.text || '{}');
-        score = result.score || 5;
-        feedbackText = result.feedback || "Submission received.";
-        instructionText = result.instruction || "";
       }
 
-      const finalFeedback = instructionText ? `${feedbackText}\n\nSUGGESTION FOR TOMORROW: ${instructionText}` : feedbackText;
-
-      const newSubmission: Submission = {
+      const submission: Submission = {
         id: Date.now().toString(),
-        text,
+        category: outputCategory,
+        text: outputText || OUTPUT_CATEGORIES.find(c => c.id === outputCategory)?.label || outputCategory,
         proofUrl: proofType === 'url' ? proofUrl : (fileBase64 || ''),
         proofType,
         date: todayStr,
         score,
-        feedback: finalFeedback,
-        createdAt: Date.now()
+        feedback: feedbackText,
+        mood: outputMood || undefined,
+        createdAt: Date.now(),
+        fitnessType: outputCategory === 'fitness' ? (fitnessType || undefined) : undefined,
+        fitnessIntensity: outputCategory === 'fitness' ? (fitnessIntensity || undefined) : undefined,
+        durationMinutes: outputCategory === 'fitness' ? (fitnessDuration || undefined) : undefined,
       };
 
-      // Save submission
-      const submissions = JSON.parse(localStorage.getItem('king-submissions') || '[]');
-      localStorage.setItem('king-submissions', JSON.stringify([...submissions, newSubmission]));
+      const submissions: Submission[] = JSON.parse(localStorage.getItem('king-submissions') || '[]');
+      localStorage.setItem('king-submissions', JSON.stringify([...submissions, submission]));
 
-      // Update score
-      const pointsEarned = score * 10;
-      const newScore = (profile?.score || 0) + pointsEarned;
-      
-      onUpdateProfile({
-        score: newScore,
-        lastCheckin: todayStr
-      });
+      const newScore = (profile?.score || 0) + score;
+      onUpdateProfile({ score: newScore, lastCheckin: todayStr });
 
-      // Update score history for chart
       const history: ScoreHistory[] = JSON.parse(localStorage.getItem('king-score') || '[]');
       localStorage.setItem('king-score', JSON.stringify([...history, { date: todayStr, score: newScore }]));
 
-      setAiScore(score);
-      setFeedback(feedbackText);
-      setHasSubmittedToday(true);
+      setCelebration({ score, key: Date.now() });
+      setTimeout(() => setCelebration(null), 1500);
 
-      // Notify user
-      if ('Notification' in window && Notification.permission === 'granted') {
-        new Notification('System Judgment', {
-          body: `Score: ${score}/10. ${feedbackText.substring(0, 50)}...`,
-          icon: '/icons/icon-192x192.png'
-        });
-      }
+      setOutputScore(score);
+      setOutputFeedback(feedbackText);
 
-    } catch (error: any) {
-      console.error("Submission error:", error);
-      setErrorMsg(error.message || "An error occurred while communicating with the AI. Please try again.");
+      // Reset form
+      setOutputCategory(null);
+      setOutputText('');
+      setProofUrl('');
+      setProofType('none');
+      setFileBase64(null);
+      setOutputMood(null);
+      setFitnessType(null);
+      setFitnessIntensity(null);
+      setFitnessDuration(null);
+    } catch (err: any) {
+      console.error("Output submit error:", err);
+      setErrorMsg(err.message || "Something went wrong. Try again.");
     } finally {
-      setSubmitting(false);
+      setOutputSaving(false);
     }
   };
 
-  if (hasSubmittedToday) {
-    return (
-      <div className="p-6 space-y-6">
-        <motion.div 
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-surface-raised border border-border rounded-2xl p-6 text-center space-y-4 relative overflow-hidden"
-        >
-          <div className="absolute top-0 left-0 w-full h-1 bg-accent opacity-20" />
-          
-          <div className="flex justify-center">
-            <div className="w-16 h-16 bg-accent/10 rounded-full flex items-center justify-center text-accent">
-              <Shield size={32} />
-            </div>
-          </div>
-          <h2 className="text-2xl font-serif font-bold text-text-primary">Your Journey Continues</h2>
-          <p className="text-text-secondary text-sm">Your progress has been recorded. Take a moment to reflect on your growth.</p>
-          
-          <div className="mt-8 pt-8 border-t border-border text-left space-y-6">
-            <div className="flex items-center justify-between">
-              <div className="flex flex-col">
-                <span className="text-[10px] uppercase tracking-[2px] text-text-tertiary font-bold">Daily Progress</span>
-                <span className="text-3xl font-serif font-bold text-accent">{aiScore}<span className="text-sm text-text-tertiary">/10</span></span>
-              </div>
-              <div className={`px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-widest border ${aiScore && aiScore >= 8 ? 'bg-green/10 border-green/20 text-green' : aiScore && aiScore >= 5 ? 'bg-accent/10 border-accent/20 text-accent' : 'bg-accent/5 border-accent/10 text-text-tertiary'}`}>
-                {aiScore && aiScore >= 8 ? 'Exceptional' : aiScore && aiScore >= 5 ? 'Steady' : 'Starting'}
-              </div>
-            </div>
-            
-            <div className="space-y-3">
-              <span className="text-[10px] uppercase tracking-[2px] text-text-tertiary font-bold">Mentor's Note</span>
-              <div className="bg-surface p-5 rounded-xl border border-border relative">
-                <div className="absolute -left-1 top-4 w-2 h-2 bg-surface border-l border-t border-border rotate-[-45deg]" />
-                <p className="text-text-primary text-[15px] leading-relaxed font-light whitespace-pre-wrap">
-                  {feedback}
-                </p>
-              </div>
-            </div>
-          </div>
-        </motion.div>
-      </div>
-    );
-  }
+  const entertainmentPercent = Math.min(100, Math.round((entertainmentUsed / entertainmentQuota) * 100));
+  const learningPercent = Math.min(100, Math.round((learningUsed / learningQuota) * 100));
 
   return (
-    <div className="p-6 space-y-6">
-      <header className="space-y-1">
-        <h1 className="text-3xl font-serif font-bold text-text-primary">Share Your Progress</h1>
-        <p className="text-text-secondary text-sm">Every step forward is a victory. Tell us about your day.</p>
-      </header>
+    <div className="p-6 pb-28 space-y-6">
+      {/* Score celebration overlay */}
+      {celebration && (
+        <ScoreCelebration score={celebration.score} visible={true} />
+      )}
 
-      <div className="space-y-4">
-        <div className="space-y-2">
-          <label className="text-xs uppercase tracking-widest text-text-tertiary font-medium">Choose Your Guide</label>
-          <div className="grid grid-cols-2 gap-2">
-            <button 
-              onClick={() => setAiModel('gemini-2.5-flash')}
-              className={`py-2 rounded-lg border text-[10px] font-bold uppercase tracking-wider transition-all ${aiModel === 'gemini-2.5-flash' ? 'bg-accent/10 border-accent text-accent' : 'bg-surface border-border text-text-tertiary'}`}
-            >
-              Gemini 2.5
-            </button>
-            <button 
-              onClick={() => setAiModel('gemini-3-flash-preview')}
-              className={`py-2 rounded-lg border text-[10px] font-bold uppercase tracking-wider transition-all ${aiModel === 'gemini-3-flash-preview' ? 'bg-accent/10 border-accent text-accent' : 'bg-surface border-border text-text-tertiary'}`}
-            >
-              Gemini 3 Flash
-            </button>
-            <button 
-              onClick={() => setAiModel('gemini-3.1-pro-preview')}
-              className={`py-2 rounded-lg border text-[10px] font-bold uppercase tracking-wider transition-all ${aiModel === 'gemini-3.1-pro-preview' ? 'bg-accent/10 border-accent text-accent' : 'bg-surface border-border text-text-tertiary'}`}
-            >
-              Gemini 3.1 Pro
-            </button>
-            <button 
-              onClick={() => setAiModel('claude-3-5-sonnet-latest')}
-              className={`py-2 rounded-lg border text-[10px] font-bold uppercase tracking-wider transition-all ${aiModel === 'claude-3-5-sonnet-latest' ? 'bg-accent/10 border-accent text-accent' : 'bg-surface border-border text-text-tertiary'}`}
-            >
-              Claude 4.5 Sonnet
-            </button>
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          <label className="text-xs uppercase tracking-widest text-text-tertiary font-medium">Daily Report</label>
-          <textarea 
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            placeholder="What did you actually achieve today? Be specific."
-            className="w-full bg-surface border border-border rounded-xl p-4 text-text-primary text-sm min-h-[150px] focus:border-accent outline-none transition-colors"
-          />
-        </div>
-
-        <div className="space-y-2">
-          <label className="text-xs uppercase tracking-widest text-text-tertiary font-medium">Proof of Work</label>
-          <div className="flex gap-2 mb-2">
-            <button 
-              onClick={() => setProofType('url')}
-              className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg border text-xs font-medium transition-all ${proofType === 'url' ? 'bg-accent/10 border-accent text-accent' : 'bg-surface border-border text-text-secondary'}`}
-            >
-              <LinkIcon size={14} /> URL Link
-            </button>
-            <button 
-              onClick={() => setProofType('file')}
-              className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg border text-xs font-medium transition-all ${proofType === 'file' ? 'bg-accent/10 border-accent text-accent' : 'bg-surface border-border text-text-secondary'}`}
-            >
-              <Video size={14} /> Video Upload
-            </button>
-          </div>
-
-          {proofType === 'url' ? (
-            <input 
-              type="text"
-              value={proofUrl}
-              onChange={(e) => setProofUrl(e.target.value)}
-              placeholder="YouTube, Instagram, or any proof link"
-              className="w-full bg-surface border border-border rounded-xl p-4 text-text-primary text-sm focus:border-accent outline-none transition-colors"
-            />
-          ) : (
-            <div className="relative">
-              <input 
-                type="file"
-                accept="video/*"
-                onChange={handleFileChange}
-                className="hidden"
-                id="video-upload"
-              />
-              <label 
-                htmlFor="video-upload"
-                className="w-full bg-surface border border-dashed border-border rounded-xl p-8 flex flex-col items-center justify-center gap-2 cursor-pointer hover:border-accent transition-colors"
-              >
-                <Video size={24} className="text-text-tertiary" />
-                <span className="text-sm text-text-secondary">{fileBase64 ? 'Video selected' : 'Select video proof'}</span>
-              </label>
-            </div>
-          )}
-        </div>
-
-        <button 
-          onClick={handleSubmit}
-          disabled={submitting || !text.trim()}
-          className="w-full bg-accent text-bg font-bold py-4 rounded-xl flex items-center justify-center gap-2 hover:opacity-90 active:scale-[0.98] transition-all disabled:opacity-50"
+      {/* Toggle Pills */}
+      <div className="flex bg-surface border border-border rounded-2xl p-1.5 relative">
+        <motion.div
+          className="absolute top-1.5 bottom-1.5 rounded-xl bg-accent/15 border border-accent/30"
+          layout
+          transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+          style={{
+            left: activeSection === 'input' ? '6px' : '50%',
+            right: activeSection === 'output' ? '6px' : '50%',
+          }}
+        />
+        <button
+          onClick={() => setActiveSection('input')}
+          className={`flex-1 py-3 rounded-xl text-[12px] font-bold uppercase tracking-[2px] flex items-center justify-center gap-2 transition-colors relative z-10 ${activeSection === 'input' ? 'text-accent' : 'text-text-tertiary'}`}
         >
-          {submitting ? (
-            <div className="w-5 h-5 border-2 border-bg/30 border-t-bg rounded-full animate-spin" />
-          ) : (
-            <>
-              <Send size={18} />
-              Share with Mentor
-            </>
-          )}
+          <ArrowDown size={14} /> Input
         </button>
+        <button
+          onClick={() => setActiveSection('output')}
+          className={`flex-1 py-3 rounded-xl text-[12px] font-bold uppercase tracking-[2px] flex items-center justify-center gap-2 transition-colors relative z-10 ${activeSection === 'output' ? 'text-accent' : 'text-text-tertiary'}`}
+        >
+          <ArrowUp size={14} /> Output
+        </button>
+      </div>
 
-        {errorMsg && (
-          <div className="p-3 bg-red/10 border border-red/20 rounded-lg text-red text-sm">
-            {errorMsg}
-          </div>
+      {/* Quota Rings (always visible) */}
+      <div className="grid grid-cols-2 gap-3">
+        <QuotaRing label="Entertainment" used={entertainmentUsed} quota={entertainmentQuota} percent={entertainmentPercent} />
+        <QuotaRing label="Learning" used={learningUsed} quota={learningQuota} percent={learningPercent} isLearning />
+      </div>
+
+      <AnimatePresence mode="wait">
+        {activeSection === 'input' ? (
+          <motion.div
+            key="input"
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -20 }}
+            transition={{ duration: 0.25 }}
+            className="space-y-5"
+          >
+            {/* Step 1: Category */}
+            <div className="space-y-2">
+              <label className="text-[10px] uppercase tracking-[2px] text-text-tertiary font-bold">What did you consume?</label>
+              <div className="grid grid-cols-3 gap-2">
+                {INPUT_CATEGORIES.map(cat => (
+                  <motion.button
+                    key={cat.id}
+                    whileTap={{ scale: 0.92 }}
+                    onClick={() => { setInputCategory(cat.id); setInputSubcategory(null); }}
+                    className={`py-4 rounded-2xl border text-center transition-all ${inputCategory === cat.id ? 'bg-accent/10 border-accent text-accent' : 'bg-surface border-border text-text-secondary'}`}
+                  >
+                    <div className="text-2xl mb-1">{cat.icon}</div>
+                    <div className="text-[10px] font-bold uppercase tracking-wider">{cat.label}</div>
+                  </motion.button>
+                ))}
+              </div>
+            </div>
+
+            {/* Step 2: Subcategory (if YouTube) */}
+            <AnimatePresence>
+              {inputCategory === 'youtube' && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="space-y-2 overflow-hidden"
+                >
+                  <label className="text-[10px] uppercase tracking-[2px] text-text-tertiary font-bold">What kind?</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {YOUTUBE_SUBCATEGORIES.map(sub => (
+                      <motion.button
+                        key={sub.id}
+                        whileTap={{ scale: 0.92 }}
+                        onClick={() => setInputSubcategory(sub.id)}
+                        className={`py-3 rounded-xl border text-center transition-all ${inputSubcategory === sub.id ? 'bg-accent/10 border-accent text-accent' : 'bg-surface border-border text-text-secondary'}`}
+                      >
+                        <span className="mr-1">{sub.icon}</span>
+                        <span className="text-[11px] font-bold uppercase tracking-wider">{sub.label}</span>
+                      </motion.button>
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Step 3: Duration */}
+            <AnimatePresence>
+              {inputCategory && (inputCategory !== 'youtube' || inputSubcategory) && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="space-y-2 overflow-hidden"
+                >
+                  <label className="text-[10px] uppercase tracking-[2px] text-text-tertiary font-bold">How long?</label>
+                  <div className="flex gap-2">
+                    {DURATION_PRESETS.map(d => (
+                      <motion.button
+                        key={d.value}
+                        whileTap={{ scale: 0.9 }}
+                        onClick={() => setInputDuration(d.value)}
+                        className={`flex-1 py-3 rounded-xl border text-[12px] font-bold transition-all ${inputDuration === d.value ? 'bg-accent/10 border-accent text-accent' : 'bg-surface border-border text-text-secondary'}`}
+                      >
+                        {d.label}
+                      </motion.button>
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Optional: Mood */}
+            <AnimatePresence>
+              {inputDuration && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="space-y-2 overflow-hidden"
+                >
+                  <label className="text-[10px] uppercase tracking-[2px] text-text-tertiary font-bold">Mood right now <span className="text-text-tertiary/50">(optional)</span></label>
+                  <div className="flex gap-2 justify-center">
+                    {MOOD_EMOJIS.map((emoji, i) => (
+                      <motion.button
+                        key={i}
+                        whileTap={{ scale: 0.85 }}
+                        onClick={() => setInputMood(inputMood === i + 1 ? null : i + 1)}
+                        className={`text-2xl p-2 rounded-xl border transition-all ${inputMood === i + 1 ? 'bg-accent/10 border-accent scale-110' : 'border-transparent opacity-60 hover:opacity-100'}`}
+                      >
+                        {emoji}
+                      </motion.button>
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Log Button */}
+            <AnimatePresence>
+              {inputDuration && (
+                <motion.button
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 10 }}
+                  whileTap={{ scale: 0.96 }}
+                  onClick={handleLogInput}
+                  disabled={inputSaving}
+                  className="w-full bg-accent text-bg font-bold py-4 rounded-2xl flex items-center justify-center gap-2 transition-all disabled:opacity-50 shadow-lg shadow-accent/20"
+                >
+                  {inputSaving ? (
+                    <div className="w-5 h-5 border-2 border-bg/30 border-t-bg rounded-full animate-spin" />
+                  ) : (
+                    'Log Input'
+                  )}
+                </motion.button>
+              )}
+            </AnimatePresence>
+
+            {/* Today's Inputs Log */}
+            {todayInputs.length > 0 && (
+              <div className="space-y-2 pt-2">
+                <div className="text-[10px] uppercase tracking-[2px] text-text-tertiary font-bold">Today's Inputs</div>
+                {todayInputs.slice().reverse().slice(0, 5).map(inp => (
+                  <motion.div
+                    key={inp.id}
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    className="bg-surface border border-border rounded-xl p-3 flex items-center justify-between"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">{INPUT_CATEGORIES.find(c => c.id === inp.category)?.icon || '💬'}</span>
+                      <div>
+                        <div className="text-xs text-text-primary font-medium capitalize">
+                          {inp.category}{inp.subcategory ? ` · ${inp.subcategory}` : ''}
+                        </div>
+                        <div className="text-[10px] text-text-tertiary">{inp.durationMinutes} min</div>
+                      </div>
+                    </div>
+                    <div className={`text-xs font-bold ${inp.scoreImpact === 0 ? 'text-text-tertiary' : 'text-red'}`}>
+                      {inp.scoreImpact === 0 ? '—' : inp.scoreImpact}
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+            )}
+          </motion.div>
+        ) : (
+          <motion.div
+            key="output"
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 20 }}
+            transition={{ duration: 0.25 }}
+            className="space-y-5"
+          >
+            {/* Show feedback if just submitted */}
+            {outputFeedback && outputScore !== null ? (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="bg-surface-raised border border-border rounded-2xl p-6 space-y-4"
+              >
+                <div className="text-center">
+                  <div className="text-3xl font-serif font-bold text-accent mb-1">+{outputScore} ✨</div>
+                  <div className="text-[10px] uppercase tracking-[2px] text-text-tertiary font-bold">Points Earned</div>
+                </div>
+                <div className="bg-surface p-4 rounded-xl border border-border">
+                  <p className="text-sm text-text-primary leading-relaxed">{outputFeedback}</p>
+                </div>
+                <button
+                  onClick={() => { setOutputFeedback(null); setOutputScore(null); }}
+                  className="w-full py-3 text-[11px] uppercase tracking-[2px] font-bold text-accent border border-accent/30 rounded-xl transition-all active:scale-95"
+                >
+                  Log Another Output
+                </button>
+              </motion.div>
+            ) : (
+              <>
+                {/* Step 1: Output Type */}
+                <div className="space-y-2">
+                  <label className="text-[10px] uppercase tracking-[2px] text-text-tertiary font-bold">What did you create?</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {OUTPUT_CATEGORIES.map(cat => (
+                      <motion.button
+                        key={cat.id}
+                        whileTap={{ scale: 0.92 }}
+                        onClick={() => setOutputCategory(cat.id)}
+                        className={`py-3 rounded-2xl border text-center transition-all ${outputCategory === cat.id ? 'bg-accent/10 border-accent text-accent' : 'bg-surface border-border text-text-secondary'}`}
+                      >
+                        <div className="text-xl mb-0.5">{cat.icon}</div>
+                        <div className="text-[9px] font-bold uppercase tracking-wider">{cat.label}</div>
+                        <div className="text-[8px] text-text-tertiary mt-0.5">+{cat.id === 'fitness' ? '10-22' : cat.baseScore}</div>
+                      </motion.button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Fitness sub-fields */}
+                <AnimatePresence>
+                  {outputCategory === 'fitness' && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className="space-y-3 overflow-hidden"
+                    >
+                      <div className="space-y-2">
+                        <label className="text-[10px] uppercase tracking-[2px] text-text-tertiary font-bold">Exercise Type</label>
+                        <div className="flex gap-2 flex-wrap">
+                          {FITNESS_TYPES.map(ft => (
+                            <motion.button
+                              key={ft}
+                              whileTap={{ scale: 0.9 }}
+                              onClick={() => setFitnessType(ft)}
+                              className={`py-2 px-4 rounded-xl border text-[11px] font-bold transition-all ${fitnessType === ft ? 'bg-accent/10 border-accent text-accent' : 'bg-surface border-border text-text-secondary'}`}
+                            >
+                              {ft}
+                            </motion.button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] uppercase tracking-[2px] text-text-tertiary font-bold">Intensity</label>
+                        <div className="flex gap-2">
+                          {(['Low', 'Medium', 'High'] as const).map(level => (
+                            <motion.button
+                              key={level}
+                              whileTap={{ scale: 0.9 }}
+                              onClick={() => setFitnessIntensity(level)}
+                              className={`flex-1 py-3 rounded-xl border text-center transition-all ${fitnessIntensity === level ? 'bg-accent/10 border-accent text-accent' : 'bg-surface border-border text-text-secondary'}`}
+                            >
+                              <div className="text-lg mb-0.5">{level === 'Low' ? '😌' : level === 'Medium' ? '💪' : '🔥'}</div>
+                              <div className="text-[10px] font-bold">{level}</div>
+                            </motion.button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] uppercase tracking-[2px] text-text-tertiary font-bold">Duration</label>
+                        <div className="flex gap-2">
+                          {DURATION_PRESETS.map(d => (
+                            <motion.button
+                              key={d.value}
+                              whileTap={{ scale: 0.9 }}
+                              onClick={() => setFitnessDuration(d.value)}
+                              className={`flex-1 py-3 rounded-xl border text-[12px] font-bold transition-all ${fitnessDuration === d.value ? 'bg-accent/10 border-accent text-accent' : 'bg-surface border-border text-text-secondary'}`}
+                            >
+                              {d.label}
+                            </motion.button>
+                          ))}
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                {/* Notes (optional, collapsed by default for non-fitness) */}
+                <AnimatePresence>
+                  {outputCategory && outputCategory !== 'fitness' && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className="space-y-3 overflow-hidden"
+                    >
+                      <div className="space-y-2">
+                        <label className="text-[10px] uppercase tracking-[2px] text-text-tertiary font-bold">
+                          Details <span className="text-text-tertiary/50">(optional — adds AI bonus)</span>
+                        </label>
+                        <textarea
+                          value={outputText}
+                          onChange={(e) => setOutputText(e.target.value)}
+                          placeholder="What did you do? Be specific for a higher score..."
+                          className="w-full bg-surface border border-border rounded-xl p-3 text-text-primary text-sm min-h-[100px] focus:border-accent outline-none transition-colors"
+                        />
+                      </div>
+
+                      {/* Proof — collapsed */}
+                      <div className="space-y-2">
+                        <label className="text-[10px] uppercase tracking-[2px] text-text-tertiary font-bold">
+                          Proof <span className="text-text-tertiary/50">(optional)</span>
+                        </label>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => setProofType(proofType === 'url' ? 'none' : 'url')}
+                            className={`flex-1 flex items-center justify-center gap-1 py-2 rounded-xl border text-xs font-medium transition-all ${proofType === 'url' ? 'bg-accent/10 border-accent text-accent' : 'bg-surface border-border text-text-secondary'}`}
+                          >
+                            <LinkIcon size={12} /> URL
+                          </button>
+                          <button
+                            onClick={() => setProofType(proofType === 'file' ? 'none' : 'file')}
+                            className={`flex-1 flex items-center justify-center gap-1 py-2 rounded-xl border text-xs font-medium transition-all ${proofType === 'file' ? 'bg-accent/10 border-accent text-accent' : 'bg-surface border-border text-text-secondary'}`}
+                          >
+                            <Video size={12} /> File
+                          </button>
+                        </div>
+                        <AnimatePresence>
+                          {proofType === 'url' && (
+                            <motion.input
+                              initial={{ opacity: 0, height: 0 }}
+                              animate={{ opacity: 1, height: 'auto' }}
+                              exit={{ opacity: 0, height: 0 }}
+                              type="text"
+                              value={proofUrl}
+                              onChange={(e) => setProofUrl(e.target.value)}
+                              placeholder="Paste link here..."
+                              className="w-full bg-surface border border-border rounded-xl p-3 text-text-primary text-sm focus:border-accent outline-none transition-colors"
+                            />
+                          )}
+                          {proofType === 'file' && (
+                            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                              <input type="file" accept="video/*,image/*" onChange={handleFileChange} className="hidden" id="output-upload" />
+                              <label htmlFor="output-upload" className="w-full bg-surface border border-dashed border-border rounded-xl p-6 flex flex-col items-center justify-center gap-1 cursor-pointer hover:border-accent transition-colors">
+                                <Video size={20} className="text-text-tertiary" />
+                                <span className="text-xs text-text-secondary">{fileBase64 ? 'File selected' : 'Select file'}</span>
+                              </label>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+
+                      {/* AI Model Selector */}
+                      {outputText.trim().length > 20 && (
+                        <div className="space-y-2">
+                          <label className="text-[10px] uppercase tracking-[2px] text-text-tertiary font-bold">AI Mentor</label>
+                          <div className="grid grid-cols-2 gap-1.5">
+                            {[
+                              { key: 'gemini-2.5-flash', label: 'Gemini 2.5' },
+                              { key: 'gemini-3-flash-preview', label: 'Gemini 3' },
+                              { key: 'gemini-3.1-pro-preview', label: 'Gemini 3.1' },
+                              { key: 'claude-3-5-sonnet-latest', label: 'Claude 4.5' },
+                            ].map(m => (
+                              <button
+                                key={m.key}
+                                onClick={() => setAiModel(m.key as any)}
+                                className={`py-2 rounded-lg border text-[9px] font-bold uppercase tracking-wider transition-all ${aiModel === m.key ? 'bg-accent/10 border-accent text-accent' : 'bg-surface border-border text-text-tertiary'}`}
+                              >
+                                {m.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                {/* Mood (optional) */}
+                <AnimatePresence>
+                  {outputCategory && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className="space-y-2 overflow-hidden"
+                    >
+                      <label className="text-[10px] uppercase tracking-[2px] text-text-tertiary font-bold">Mood <span className="text-text-tertiary/50">(optional)</span></label>
+                      <div className="flex gap-2 justify-center">
+                        {MOOD_EMOJIS.map((emoji, i) => (
+                          <motion.button
+                            key={i}
+                            whileTap={{ scale: 0.85 }}
+                            onClick={() => setOutputMood(outputMood === i + 1 ? null : i + 1)}
+                            className={`text-2xl p-2 rounded-xl border transition-all ${outputMood === i + 1 ? 'bg-accent/10 border-accent scale-110' : 'border-transparent opacity-60 hover:opacity-100'}`}
+                          >
+                            {emoji}
+                          </motion.button>
+                        ))}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                {/* Submit Button */}
+                <AnimatePresence>
+                  {outputCategory && (outputCategory !== 'fitness' || (fitnessType && fitnessIntensity && fitnessDuration)) && (
+                    <motion.button
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 10 }}
+                      whileTap={{ scale: 0.96 }}
+                      onClick={handleSubmitOutput}
+                      disabled={outputSaving}
+                      className="w-full bg-accent text-bg font-bold py-4 rounded-2xl flex items-center justify-center gap-2 transition-all disabled:opacity-50 shadow-lg shadow-accent/20"
+                    >
+                      {outputSaving ? (
+                        <div className="w-5 h-5 border-2 border-bg/30 border-t-bg rounded-full animate-spin" />
+                      ) : (
+                        <>
+                          <Send size={16} />
+                          Log Output (+{getBaseScore(outputCategory)}{shouldUseAI(outputCategory) ? '+AI' : ''})
+                        </>
+                      )}
+                    </motion.button>
+                  )}
+                </AnimatePresence>
+
+                {errorMsg && (
+                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="p-3 bg-red/10 border border-red/20 rounded-xl text-red text-sm">
+                    {errorMsg}
+                  </motion.div>
+                )}
+
+                <div className="flex items-start gap-3 p-4 bg-accent/5 border border-accent/10 rounded-xl">
+                  <ShieldCheck size={16} className="text-accent shrink-0 mt-0.5" />
+                  <p className="text-[10px] text-text-secondary leading-relaxed">
+                    Every action matters. Quick-log a category for base points, or add details for an AI-evaluated bonus score.
+                  </p>
+                </div>
+              </>
+            )}
+          </motion.div>
         )}
+      </AnimatePresence>
+    </div>
+  );
+}
 
-        <div className="flex items-start gap-3 p-4 bg-accent/5 border border-accent/10 rounded-xl">
-          <ShieldCheck size={18} className="text-accent shrink-0 mt-0.5" />
-          <p className="text-[11px] text-text-secondary leading-relaxed">
-            Your effort matters. The AI Mentor is here to support your growth and celebrate your consistency. 
-            One update per day helps build the habit of a lifetime.
-          </p>
+// ─── Quota Ring Component ────────────────────────────────────────
+
+function QuotaRing({
+  label,
+  used,
+  quota,
+  percent,
+  isLearning = false,
+}: {
+  label: string;
+  used: number;
+  quota: number;
+  percent: number;
+  isLearning?: boolean;
+}) {
+  const radius = 32;
+  const circumference = 2 * Math.PI * radius;
+  const strokeDashoffset = circumference - (Math.min(percent, 100) / 100) * circumference;
+
+  const color = isLearning
+    ? 'var(--theme-green)'
+    : percent >= 100
+      ? 'var(--theme-red)'
+      : percent >= 80
+        ? '#F5A623'
+        : 'var(--theme-accent)';
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.9 }}
+      animate={{ opacity: 1, scale: 1 }}
+      className="bg-surface border border-border rounded-2xl p-4 flex items-center gap-3"
+    >
+      <div className="relative w-[72px] h-[72px] shrink-0">
+        <svg viewBox="0 0 76 76" className="w-full h-full -rotate-90">
+          <circle cx="38" cy="38" r={radius} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="5" />
+          <motion.circle
+            cx="38" cy="38" r={radius} fill="none"
+            stroke={color}
+            strokeWidth="5"
+            strokeLinecap="round"
+            strokeDasharray={circumference}
+            initial={{ strokeDashoffset: circumference }}
+            animate={{ strokeDashoffset }}
+            transition={{ duration: 1, ease: 'easeOut' }}
+          />
+        </svg>
+        <div className="absolute inset-0 flex items-center justify-center">
+          <span className="text-[13px] font-bold text-text-primary">{percent}%</span>
         </div>
       </div>
-    </div>
+      <div>
+        <div className="text-[10px] uppercase tracking-[2px] text-text-tertiary font-bold">{label}</div>
+        <div className="text-sm text-text-primary font-medium">{used}m / {quota}m</div>
+        {percent >= 100 && !isLearning && (
+          <div className="text-[9px] text-red mt-0.5 font-medium">Quota used · penalty active</div>
+        )}
+      </div>
+    </motion.div>
   );
 }

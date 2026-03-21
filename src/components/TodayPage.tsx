@@ -3,7 +3,7 @@ import { db, handleFirestoreError, OperationType } from '../firebase';
 import { collection, query, orderBy, onSnapshot, addDoc, updateDoc, doc, serverTimestamp, where, deleteField } from 'firebase/firestore';
 import { format, parseISO } from 'date-fns';
 import { Goal, UserProfile } from '../types';
-import { Check, Plus, Shield, Zap, Trash2, Edit2 } from 'lucide-react';
+import { Check, Plus, Shield, Zap, Trash2, Edit2, Calendar, Flag } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ConfirmationModal from './ConfirmationModal';
 
@@ -24,6 +24,9 @@ export default function TodayPage({
   const [editingGoalId, setEditingGoalId] = useState<string | null>(null);
   const [editGoalText, setEditGoalText] = useState('');
   const [goalToDelete, setGoalToDelete] = useState<string | null>(null);
+  const [newGoalDeadline, setNewGoalDeadline] = useState('');
+  const [newGoalPriority, setNewGoalPriority] = useState<'low' | 'medium' | 'high' | ''>('');
+  const [showExtras, setShowExtras] = useState(false);
 
   const todayStr = format(new Date(), 'yyyy-MM-dd');
 
@@ -76,9 +79,14 @@ export default function TodayPage({
         text: newGoalText.trim(),
         done: false,
         date: todayStr,
-        createdAt: serverTimestamp()
+        createdAt: serverTimestamp(),
+        ...(newGoalDeadline ? { deadline: newGoalDeadline } : {}),
+        ...(newGoalPriority ? { priority: newGoalPriority } : {}),
       });
       setNewGoalText('');
+      setNewGoalDeadline('');
+      setNewGoalPriority('');
+      setShowExtras(false);
       setShowInput(false);
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, `users/${user.uid}/goals`);
@@ -257,10 +265,25 @@ export default function TodayPage({
                 </div>
               ) : (
                 <>
-                  <div className={`text-[15px] font-medium flex-1 leading-[1.4] transition-colors duration-200
-                    ${goal.done ? 'text-text-secondary line-through' : 'text-text-primary'}
-                  `}>
-                    {goal.text}
+                  <div className="flex-1 flex flex-col min-w-0">
+                    <div className={`text-[15px] font-medium leading-[1.4] transition-colors duration-200
+                      ${goal.done ? 'text-text-secondary line-through' : 'text-text-primary'}
+                    `}>
+                      {goal.text}
+                    </div>
+                    <div className="flex items-center gap-2 mt-1">
+                      {goal.priority && (
+                        <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded 
+                          ${goal.priority === 'high' ? 'bg-red/10 text-red' : goal.priority === 'medium' ? 'bg-accent/10 text-accent' : 'bg-surface-raised text-text-tertiary'}`}>
+                          {goal.priority}
+                        </span>
+                      )}
+                      {goal.deadline && (
+                        <span className="text-[9px] text-text-tertiary flex items-center gap-0.5">
+                          <Calendar size={9} /> {goal.deadline}
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <div className="flex items-center gap-2 opacity-0 hover:opacity-100 transition-opacity">
                     <button onClick={(e) => startEditingGoal(goal, e)} className="text-text-tertiary hover:text-accent transition-colors p-1">
@@ -296,8 +319,43 @@ export default function TodayPage({
                 placeholder="Write it simply..."
                 maxLength={80}
                 autoFocus
-                className="w-full bg-surface-raised border border-accent rounded-2xl p-4 text-text-primary font-sans text-[15px] outline-none placeholder:text-text-tertiary mb-3"
+                className="w-full bg-surface-raised border border-accent rounded-2xl p-4 text-text-primary font-sans text-[15px] outline-none placeholder:text-text-tertiary mb-2"
               />
+              <button
+                onClick={() => setShowExtras(!showExtras)}
+                className="text-[10px] text-text-tertiary hover:text-accent transition-colors uppercase tracking-wider font-bold mb-2 flex items-center gap-1"
+              >
+                <Flag size={10} /> {showExtras ? 'Hide' : '+'} Deadline & Priority
+              </button>
+              <AnimatePresence>
+                {showExtras && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="space-y-2 mb-3 overflow-hidden"
+                  >
+                    <div className="flex gap-2">
+                      <input
+                        type="date"
+                        value={newGoalDeadline}
+                        onChange={(e) => setNewGoalDeadline(e.target.value)}
+                        className="flex-1 bg-surface border border-border rounded-xl p-2.5 text-text-primary text-xs outline-none focus:border-accent"
+                      />
+                      <select
+                        value={newGoalPriority}
+                        onChange={(e) => setNewGoalPriority(e.target.value as any)}
+                        className="flex-1 bg-surface border border-border rounded-xl p-2.5 text-text-primary text-xs outline-none focus:border-accent appearance-none"
+                      >
+                        <option value="">Priority...</option>
+                        <option value="low">Low</option>
+                        <option value="medium">Medium</option>
+                        <option value="high">High</option>
+                      </select>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
               <div className="flex gap-3">
                 <button 
                   onClick={() => setShowInput(false)}

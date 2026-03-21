@@ -34,7 +34,7 @@ export default function App() {
     setProfile(prev => {
       const base = prev || { streak: 0, score: 0 };
       
-      const allowedFields = ['streak', 'lastCheckin', 'startDate', 'score', 'notificationTime', 'naggingEnabled', 'naggingFrequency'];
+      const allowedFields = ['streak', 'lastCheckin', 'startDate', 'score', 'notificationTime', 'naggingEnabled', 'naggingFrequency', 'quotas', 'graceDaysUsed', 'lastGraceDayWeek'];
       const sanitizedUpdates: any = {};
       for (const key of Object.keys(updates)) {
         if (allowedFields.includes(key)) {
@@ -118,7 +118,7 @@ export default function App() {
               ...currentProfile
             };
             
-            const allowedFields = ['streak', 'lastCheckin', 'startDate', 'score', 'notificationTime', 'naggingEnabled', 'naggingFrequency'];
+            const allowedFields = ['streak', 'lastCheckin', 'startDate', 'score', 'notificationTime', 'naggingEnabled', 'naggingFrequency', 'quotas', 'graceDaysUsed', 'lastGraceDayWeek'];
             const sanitizedProfile: any = {};
             for (const key of Object.keys(initialProfile)) {
               if (allowedFields.includes(key)) {
@@ -322,7 +322,7 @@ export default function App() {
         >
           {activeTab === 'today' && <TodayPage user={user} profile={profile} onUpdateProfile={updateProfile} />}
           {activeTab === 'submit' && <SubmitPage user={user} profile={profile} onUpdateProfile={updateProfile} />}
-          {activeTab === 'progress' && <ProgressPage user={user} />}
+          {activeTab === 'progress' && <ProgressPage />}
           {activeTab === 'journal' && <JournalPage user={user} />}
           {activeTab === 'system' && <SystemPage user={user} profile={profile} onUpdateProfile={updateProfile} />}
         </motion.div>
