@@ -134,6 +134,7 @@ export default function App() {
             const oldData = localStorage.getItem(key);
             if (oldData) {
               localStorage.setItem(`${key}-${uid}`, oldData);
+              localStorage.removeItem(key);
             }
           });
         }
