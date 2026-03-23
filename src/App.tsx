@@ -125,6 +125,18 @@ export default function App() {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (currentUser) {
         setUser(currentUser);
+
+        // -- MIGRATION: Rescue old global data into this user's UID boundary --
+        const uid = currentUser.uid;
+        const keysToMigrate = ['king-system', 'king-inputs', 'king-submissions', 'king-score', 'king-skips', 'king-system-keys'];
+        if (!localStorage.getItem(`king-system-${uid}`) && localStorage.getItem('king-system')) {
+          keysToMigrate.forEach(key => {
+            const oldData = localStorage.getItem(key);
+            if (oldData) {
+              localStorage.setItem(`${key}-${uid}`, oldData);
+            }
+          });
+        }
         
         try {
           const userRef = doc(db, 'users', currentUser.uid);
