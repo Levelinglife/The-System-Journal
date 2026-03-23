@@ -1,3 +1,4 @@
+import { auth } from '../firebase';
 import React, { useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -54,19 +55,19 @@ function CollapsibleSection({ title, icon: Icon, children, defaultOpen = false }
 
 export default function ProgressPage() {
   const profile: UserProfile = useMemo(() => {
-    return JSON.parse(localStorage.getItem('king-system') || '{"streak":0,"score":0}');
+    return JSON.parse(localStorage.getItem(`king-system-${auth.currentUser?.uid || 'guest'}`) || '{"streak":0,"score":0}');
   }, []);
 
   const history: ScoreHistory[] = useMemo(() => {
-    return JSON.parse(localStorage.getItem('king-score') || '[]');
+    return JSON.parse(localStorage.getItem(`king-score-${auth.currentUser?.uid || 'guest'}`) || '[]');
   }, []);
 
   const submissions: Submission[] = useMemo(() => {
-    return JSON.parse(localStorage.getItem('king-submissions') || '[]');
+    return JSON.parse(localStorage.getItem(`king-submissions-${auth.currentUser?.uid || 'guest'}`) || '[]');
   }, []);
 
   const inputs: InputLog[] = useMemo(() => {
-    return JSON.parse(localStorage.getItem('king-inputs') || '[]');
+    return JSON.parse(localStorage.getItem(`king-inputs-${auth.currentUser?.uid || 'guest'}`) || '[]');
   }, []);
 
   // ── Computed Data ──────────────────────────────────────────────

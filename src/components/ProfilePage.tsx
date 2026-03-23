@@ -24,14 +24,14 @@ export default function ProfilePage({
 
   useEffect(() => {
     setIsLight(document.documentElement.classList.contains('light'));
-    const keys = JSON.parse(localStorage.getItem('king-system-keys') || '{}');
+    const keys = JSON.parse(localStorage.getItem(`king-system-keys-${auth.currentUser?.uid || 'guest'}`) || '{}');
     if (keys.gemini) setGeminiKey(keys.gemini);
     if (keys.anthropic) setAnthropicKey(keys.anthropic);
   }, []);
 
   const saveKeys = (gKey: string, aKey: string) => {
     const keys = { gemini: gKey, anthropic: aKey };
-    localStorage.setItem('king-system-keys', JSON.stringify(keys));
+    localStorage.setItem(`king-system-keys-${auth.currentUser?.uid || 'guest'}`, JSON.stringify(keys));
   };
 
   const handleGeminiKeyChange = (e: any) => {

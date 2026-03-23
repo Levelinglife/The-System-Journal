@@ -1,3 +1,4 @@
+import { auth } from '../firebase';
 import { useState } from 'react';
 import { motion } from 'motion/react';
 import { AlertTriangle, ArrowRight } from 'lucide-react';
@@ -25,17 +26,17 @@ export default function SkipOverlay({
     setSaving(true);
 
     // Save skip reason
-    const skips = JSON.parse(localStorage.getItem('king-skips') || '[]');
+    const skips = JSON.parse(localStorage.getItem(`king-skips-${auth.currentUser?.uid || 'guest'}`) || '[]');
     skips.push({ date: todayStr, reason: reason.trim(), createdAt: Date.now() });
-    localStorage.setItem('king-skips', JSON.stringify(skips));
+    localStorage.setItem(`king-skips-${auth.currentUser?.uid || 'guest'}`, JSON.stringify(skips));
 
     // Apply -15 penalty
     const newScore = Math.max(-100, (profile?.score || 0) - 15);
     onUpdateProfile({ score: newScore, lastCheckin: todayStr });
 
     // Update score history
-    const history: ScoreHistory[] = JSON.parse(localStorage.getItem('king-score') || '[]');
-    localStorage.setItem('king-score', JSON.stringify([...history, { date: todayStr, score: newScore }]));
+    const history: ScoreHistory[] = JSON.parse(localStorage.getItem(`king-score-${auth.currentUser?.uid || 'guest'}`) || '[]');
+    localStorage.setItem(`king-score-${auth.currentUser?.uid || 'guest'}`, JSON.stringify([...history, { date: todayStr, score: newScore }]));
 
     // Check 3-day consecutive skip penalty
     const recentSkips = skips.filter((s: any) => {
@@ -45,8 +46,8 @@ export default function SkipOverlay({
     if (recentSkips.length >= 3) {
       const bonusPenalty = Math.max(-100, newScore - 5);
       onUpdateProfile({ score: bonusPenalty });
-      const history2: ScoreHistory[] = JSON.parse(localStorage.getItem('king-score') || '[]');
-      localStorage.setItem('king-score', JSON.stringify([...history2, { date: todayStr, score: bonusPenalty }]));
+      const history2: ScoreHistory[] = JSON.parse(localStorage.getItem(`king-score-${auth.currentUser?.uid || 'guest'}`) || '[]');
+      localStorage.setItem(`king-score-${auth.currentUser?.uid || 'guest'}`, JSON.stringify([...history2, { date: todayStr, score: bonusPenalty }]));
     }
 
     setSaving(false);

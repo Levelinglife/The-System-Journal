@@ -9,7 +9,7 @@ import {
   FITNESS_TYPES, DURATION_PRESETS, MOOD_EMOJIS,
   getInputScoreImpact
 } from '../types';
-import { db } from '../firebase';
+import { db, auth } from '../firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 
 // Score celebration component
@@ -87,9 +87,14 @@ export default function SubmitPage({
 
   // Compute today's used entertainment minutes
   const todayInputs: InputLog[] = useMemo(() => {
-    const all: InputLog[] = JSON.parse(localStorage.getItem('king-inputs') || '[]');
+    const all: InputLog[] = JSON.parse(localStorage.getItem(`king-inputs-${auth.currentUser?.uid || 'guest'}`) || '[]');
     return all.filter(i => i.date === todayStr);
   }, [todayStr, inputSaving]); // re-compute after saving
+
+  const todayOutputs: Submission[] = useMemo(() => {
+    const all: Submission[] = JSON.parse(localStorage.getItem(`king-submissions-${auth.currentUser?.uid || 'guest'}`) || '[]');
+    return all.filter(s => s.date === todayStr);
+  }, [todayStr, outputSaving]);
 
   const entertainmentUsed = useMemo(() => {
     return todayInputs
@@ -156,8 +161,8 @@ export default function SubmitPage({
       createdAt: Date.now(),
     };
 
-    const allInputs: InputLog[] = JSON.parse(localStorage.getItem('king-inputs') || '[]');
-    localStorage.setItem('king-inputs', JSON.stringify([...allInputs, entry]));
+    const allInputs: InputLog[] = JSON.parse(localStorage.getItem(`king-inputs-${auth.currentUser?.uid || 'guest'}`) || '[]');
+    localStorage.setItem(`king-inputs-${auth.currentUser?.uid || 'guest'}`, JSON.stringify([...allInputs, entry]));
 
     // Update score
     if (scoreImpact !== 0) {
@@ -165,8 +170,8 @@ export default function SubmitPage({
       onUpdateProfile({ score: newScore, lastCheckin: todayStr });
 
       // Update score history
-      const history: ScoreHistory[] = JSON.parse(localStorage.getItem('king-score') || '[]');
-      localStorage.setItem('king-score', JSON.stringify([...history, { date: todayStr, score: newScore }]));
+      const history: ScoreHistory[] = JSON.parse(localStorage.getItem(`king-score-${auth.currentUser?.uid || 'guest'}`) || '[]');
+      localStorage.setItem(`king-score-${auth.currentUser?.uid || 'guest'}`, JSON.stringify([...history, { date: todayStr, score: newScore }]));
     }
 
     // Show celebration
@@ -208,8 +213,8 @@ export default function SubmitPage({
 
   // Calculate today's input/output ratio
   const getTodayRatio = () => {
-    const inputs = JSON.parse(localStorage.getItem('king-inputs') || '[]').filter((i: any) => i.date === todayStr);
-    const outputs: Submission[] = JSON.parse(localStorage.getItem('king-submissions') || '[]').filter((s: Submission) => s.date === todayStr);
+    const inputs = JSON.parse(localStorage.getItem(`king-inputs-${auth.currentUser?.uid || 'guest'}`) || '[]').filter((i: any) => i.date === todayStr);
+    const outputs: Submission[] = JSON.parse(localStorage.getItem(`king-submissions-${auth.currentUser?.uid || 'guest'}`) || '[]').filter((s: Submission) => s.date === todayStr);
     const inputMin = inputs.reduce((sum: number, i: any) => sum + (i.durationMinutes || 0), 0);
     const outputCount = outputs.length;
     return { inputMin, outputCount, ratio: outputCount === 0 && inputMin > 0 ? 'ALL_INPUT' : inputMin > 0 ? `${inputMin}min consumed / ${outputCount} outputs` : 'none' };
@@ -227,7 +232,7 @@ export default function SubmitPage({
     try {
       if (shouldUseAI(outputCategory)) {
         // ── AI-JUDGED PATH ──
-        const keys = JSON.parse(localStorage.getItem('king-system-keys') || '{}');
+        const keys = JSON.parse(localStorage.getItem(`king-system-keys-${auth.currentUser?.uid || 'guest'}`) || '{}');
         const goalsContext = todayGoals.length > 0
           ? todayGoals.map(g => `- ${g.text} (${g.done ? 'DONE' : 'NOT DONE'})`).join('\n')
           : "No specific goals set.";
@@ -302,14 +307,14 @@ Return ONLY valid JSON:
         durationMinutes: outputCategory === 'fitness' ? (fitnessDuration || undefined) : undefined,
       };
 
-      const submissions: Submission[] = JSON.parse(localStorage.getItem('king-submissions') || '[]');
-      localStorage.setItem('king-submissions', JSON.stringify([...submissions, submission]));
+      const submissions: Submission[] = JSON.parse(localStorage.getItem(`king-submissions-${auth.currentUser?.uid || 'guest'}`) || '[]');
+      localStorage.setItem(`king-submissions-${auth.currentUser?.uid || 'guest'}`, JSON.stringify([...submissions, submission]));
 
       const newScore = (profile?.score || 0) + score;
       onUpdateProfile({ score: newScore, lastCheckin: todayStr });
 
-      const history: ScoreHistory[] = JSON.parse(localStorage.getItem('king-score') || '[]');
-      localStorage.setItem('king-score', JSON.stringify([...history, { date: todayStr, score: newScore }]));
+      const history: ScoreHistory[] = JSON.parse(localStorage.getItem(`king-score-${auth.currentUser?.uid || 'guest'}`) || '[]');
+      localStorage.setItem(`king-score-${auth.currentUser?.uid || 'guest'}`, JSON.stringify([...history, { date: todayStr, score: newScore }]));
 
       setCelebration({ score, key: Date.now() });
       setTimeout(() => setCelebration(null), 1500);
@@ -817,6 +822,42 @@ Return ONLY valid JSON:
                 </div>
               </>
             )}
+
+            {/* Today's Outputs Log */}
+            {todayOutputs.length > 0 && (
+              <div className="space-y-2 pt-2">
+                <div className="text-[10px] uppercase tracking-[2px] text-text-tertiary font-bold">Today's Outputs</div>
+                {todayOutputs.slice().reverse().slice(0, 5).map(outp => (
+                  <motion.div
+                    key={outp.id}
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    className="bg-surface border border-border rounded-xl p-3 flex flex-col gap-2"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg">{OUTPUT_CATEGORIES.find(c => c.id === outp.category)?.icon || '✨'}</span>
+                        <div>
+                          <div className="text-xs text-text-primary font-medium capitalize">
+                            {outp.category}
+                          </div>
+                          <div className="text-[10px] text-text-tertiary">{outp.date}</div>
+                        </div>
+                      </div>
+                      <div className={`text-xs font-bold text-accent`}>
+                        +{outp.score}
+                      </div>
+                    </div>
+                    {outp.feedback && (
+                      <div className="bg-surface-raised rounded-lg p-2 text-[11px] text-text-secondary border border-border/50">
+                        <span className="font-bold text-accent">AI: </span>
+                        <span className="leading-snug">{outp.feedback}</span>
+                      </div>
+                    )}
+                  </motion.div>
+                ))}
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
@@ -875,8 +916,8 @@ function QuotaRing({
           <span className="text-[13px] font-bold text-text-primary">{percent}%</span>
         </div>
       </div>
-      <div>
-        <div className="text-[10px] uppercase tracking-[2px] text-text-tertiary font-bold">{label}</div>
+      <div className="flex-1 min-w-0 pr-2">
+        <div className="text-[10px] uppercase tracking-[2px] text-text-tertiary font-bold truncate block" title={label}>{label}</div>
         <div className="text-sm text-text-primary font-medium">{used}m / {quota}m</div>
         {percent >= 100 && !isLearning && (
           <div className="text-[9px] text-red mt-0.5 font-medium">Quota used · penalty active</div>

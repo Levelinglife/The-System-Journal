@@ -29,7 +29,7 @@ export default function App() {
 
   // Load profile from localStorage and sync with state
   const loadProfile = useCallback(() => {
-    const data = JSON.parse(localStorage.getItem('king-system') || '{"streak":0,"score":0}');
+    const data = JSON.parse(localStorage.getItem(`king-system-${auth.currentUser?.uid || 'guest'}`) || '{"streak":0,"score":0}');
     setProfile(data);
     return data;
   }, []);
@@ -47,7 +47,7 @@ export default function App() {
       }
 
       const updated = { ...base, ...sanitizedUpdates };
-      localStorage.setItem('king-system', JSON.stringify(updated));
+      localStorage.setItem(`king-system-${auth.currentUser?.uid || 'guest'}`, JSON.stringify(updated));
       
       // Sync to Firestore if user is logged in
       if (auth.currentUser) {
@@ -214,8 +214,8 @@ export default function App() {
           });
           
           // Update history
-          const history: ScoreHistory[] = JSON.parse(localStorage.getItem('king-score') || '[]');
-          localStorage.setItem('king-score', JSON.stringify([...history, { date: todayStr, score: newScore }]));
+          const history: ScoreHistory[] = JSON.parse(localStorage.getItem(`king-score-${auth.currentUser?.uid || 'guest'}`) || '[]');
+          localStorage.setItem(`king-score-${auth.currentUser?.uid || 'guest'}`, JSON.stringify([...history, { date: todayStr, score: newScore }]));
         }
       }
     }
@@ -259,9 +259,9 @@ export default function App() {
       const naggingFreq = profile.naggingFrequency || 3;
 
       // Data checks
-      const submissions: Submission[] = JSON.parse(localStorage.getItem('king-submissions') || '[]');
+      const submissions: Submission[] = JSON.parse(localStorage.getItem(`king-submissions-${auth.currentUser?.uid || 'guest'}`) || '[]');
       const hasOutputToday = submissions.some(s => s.date === todayStr);
-      const todayInputs = JSON.parse(localStorage.getItem('king-inputs') || '[]')
+      const todayInputs = JSON.parse(localStorage.getItem(`king-inputs-${auth.currentUser?.uid || 'guest'}`) || '[]')
         .filter((i: any) => i.date === todayStr);
       const hasInputToday = todayInputs.length > 0;
 
