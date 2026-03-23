@@ -3,9 +3,14 @@ export interface UserProfile {
   lastCheckin?: string;
   startDate?: string;
   score: number;
-  notificationTime?: string; // HH:mm format
+  notificationTime?: string; // HH:mm — Wake / Day Start Time
+  sleepTime?: string; // HH:mm — Sleep / Day End Time
+  workStart?: string; // HH:mm — Active hours start
+  workEnd?: string; // HH:mm — Active hours end
   naggingEnabled?: boolean;
   naggingFrequency?: number;
+  weeklyReviewDay?: number; // 0-6 (0=Sunday)
+  weeklyReviewTime?: string; // HH:mm
   graceDaysUsed?: number; // out of 1 per 7 days
   lastGraceDayWeek?: string; // ISO week identifier
   quotas?: {

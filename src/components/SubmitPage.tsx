@@ -69,6 +69,9 @@ export default function SubmitPage({
     'claude-3-5-sonnet-latest'
   >('gemini-3-flash-preview');
 
+  // AI Toggle — ON = AI judges, OFF = Quick Log (+20)
+  const [aiEnabled, setAiEnabled] = useState(true);
+
   // Celebration
   const [celebration, setCelebration] = useState<{ score: number; key: number } | null>(null);
 
@@ -199,7 +202,17 @@ export default function SubmitPage({
   };
 
   const shouldUseAI = (cat: string): boolean => {
-    return ['writing', 'scripting', 'video-editing', 'website', 'problem-solving'].includes(cat) && outputText.trim().length > 20;
+    if (!aiEnabled) return false;
+    return outputText.trim().length > 10;
+  };
+
+  // Calculate today's input/output ratio
+  const getTodayRatio = () => {
+    const inputs = JSON.parse(localStorage.getItem('king-inputs') || '[]').filter((i: any) => i.date === todayStr);
+    const outputs: Submission[] = JSON.parse(localStorage.getItem('king-submissions') || '[]').filter((s: Submission) => s.date === todayStr);
+    const inputMin = inputs.reduce((sum: number, i: any) => sum + (i.durationMinutes || 0), 0);
+    const outputCount = outputs.length;
+    return { inputMin, outputCount, ratio: outputCount === 0 && inputMin > 0 ? 'ALL_INPUT' : inputMin > 0 ? `${inputMin}min consumed / ${outputCount} outputs` : 'none' };
   };
 
   const handleSubmitOutput = async () => {
@@ -208,50 +221,59 @@ export default function SubmitPage({
     setOutputSaving(true);
     setErrorMsg(null);
 
-    let score = getBaseScore(outputCategory);
-    let feedbackText = "Output logged. Keep building.";
+    let score = 20; // Quick Log default
+    let feedbackText = "Output logged. +20 points. Keep building.";
 
     try {
-      // AI evaluation for rich submissions
       if (shouldUseAI(outputCategory)) {
+        // ── AI-JUDGED PATH ──
         const keys = JSON.parse(localStorage.getItem('king-system-keys') || '{}');
         const goalsContext = todayGoals.length > 0
           ? todayGoals.map(g => `- ${g.text} (${g.done ? 'DONE' : 'NOT DONE'})`).join('\n')
           : "No specific goals set.";
+        const ratioInfo = getTodayRatio();
 
-        const prompt = `
-          You are "The Guide", a supportive and encouraging mentor.
-          Evaluate this person's creative output and provide brief, warm feedback.
+        const prompt = `You are THE SYSTEM — a harsh, no-BS accountability engine.
+You judge output quality on a 1-10 scale. You never inflate scores.
+A 5 means mediocre. A 7 means genuinely impressive. 9-10 is reserved for exceptional work.
 
-          USER CONTEXT:
-          - Streak: ${profile?.streak || 0} days
-          - Score: ${profile?.score || 0}
-          - Today's Goals:\n${goalsContext}
+Rules:
+- Be brutally honest. If the work is low-effort, say so.
+- If description is vague or short, assume low effort. Score 1-3.
+- If they have proof (URL/file), score more generously.
+- Factor in the input/output ratio: ${ratioInfo.ratio}
+- Give ONE specific instruction for tomorrow. Max 120 words total.
 
-          OUTPUT TYPE: ${outputCategory}
-          DESCRIPTION: ${outputText}
-          PROOF: ${proofType === 'url' ? proofUrl : proofType === 'file' ? 'File uploaded' : 'None'}
+USER CONTEXT:
+- Day: ${Math.max(1, Math.ceil((Date.now() - new Date(profile?.startDate || todayStr).getTime()) / 86400000))} of 90
+- Streak: ${profile?.streak || 0} days
+- Score: ${profile?.score || 0}
+- Today's Goals:\n${goalsContext}
+- Input/Output: ${ratioInfo.ratio}
 
-          Return ONLY valid JSON:
-          {"score": 1-10, "feedback": "Brief encouraging message (max 80 words)"}
-        `;
+OUTPUT TYPE: ${outputCategory}
+DESCRIPTION: ${outputText}
+PROOF: ${proofType === 'url' ? proofUrl : proofType === 'file' ? 'File uploaded' : 'None'}
+
+Return ONLY valid JSON:
+{"score": 1-10, "feedback": "Max 120 words. Be harsh but constructive.", "instruction": "One specific task for tomorrow."}`;
 
         if (aiModel.startsWith('claude')) {
-          if (!keys.anthropic) throw new Error("Add Anthropic API key in Rules page.");
+          if (!keys.anthropic) throw new Error("Add Anthropic API key in Profile → API Keys.");
           const anthropic = new Anthropic({ apiKey: keys.anthropic, dangerouslyAllowBrowser: true });
           const msg = await anthropic.messages.create({
             model: aiModel,
-            max_tokens: 300,
-            system: "You are 'The Guide'. Warm, supportive. Return ONLY JSON. No markdown.",
+            max_tokens: 400,
+            system: "You are THE SYSTEM. Harsh. Return ONLY JSON. No markdown.",
             messages: [{ role: 'user', content: prompt }]
           });
           const text = msg.content[0].type === 'text' ? msg.content[0].text : '{}';
           const result = JSON.parse(text.replace(/```json/g, '').replace(/```/g, '').trim());
-          score = (result.score || 5) * 2 + getBaseScore(outputCategory);
-          feedbackText = result.feedback || feedbackText;
+          score = Math.max(10, (result.score || 5) * 10);
+          feedbackText = result.feedback + (result.instruction ? `\n\n📋 Tomorrow: ${result.instruction}` : '') || feedbackText;
         } else {
           const apiKey = keys.gemini || '';
-          if (!apiKey) throw new Error("Add Gemini API key in Rules page.");
+          if (!apiKey) throw new Error("Add Gemini API key in Profile → API Keys.");
           const ai = new GoogleGenAI({ apiKey });
           const response = await ai.models.generateContent({
             model: aiModel,
@@ -259,8 +281,8 @@ export default function SubmitPage({
             config: { responseMimeType: "application/json" }
           });
           const result = JSON.parse(response.text || '{}');
-          score = (result.score || 5) * 2 + getBaseScore(outputCategory);
-          feedbackText = result.feedback || feedbackText;
+          score = Math.max(10, (result.score || 5) * 10);
+          feedbackText = result.feedback + (result.instruction ? `\n\n📋 Tomorrow: ${result.instruction}` : '') || feedbackText;
         }
       }
 
@@ -685,28 +707,48 @@ export default function SubmitPage({
                         </AnimatePresence>
                       </div>
 
-                      {/* AI Model Selector */}
-                      {outputText.trim().length > 20 && (
-                        <div className="space-y-2">
-                          <label className="text-[10px] uppercase tracking-[2px] text-text-tertiary font-bold">AI Mentor</label>
-                          <div className="grid grid-cols-2 gap-1.5">
-                            {[
-                              { key: 'gemini-2.5-flash', label: 'Gemini 2.5' },
-                              { key: 'gemini-3-flash-preview', label: 'Gemini 3' },
-                              { key: 'gemini-3.1-pro-preview', label: 'Gemini 3.1' },
-                              { key: 'claude-3-5-sonnet-latest', label: 'Claude 4.5' },
-                            ].map(m => (
-                              <button
-                                key={m.key}
-                                onClick={() => setAiModel(m.key as any)}
-                                className={`py-2 rounded-lg border text-[9px] font-bold uppercase tracking-wider transition-all ${aiModel === m.key ? 'bg-accent/10 border-accent text-accent' : 'bg-surface border-border text-text-tertiary'}`}
-                              >
-                                {m.label}
-                              </button>
-                            ))}
+                      {/* AI Toggle */}
+                      <div className="space-y-3">
+                        <button
+                          onClick={() => setAiEnabled(!aiEnabled)}
+                          className="w-full flex items-center justify-between p-3.5 bg-surface border border-border rounded-xl transition-all active:scale-[0.98]"
+                        >
+                          <div className="flex flex-col text-left">
+                            <span className="text-[12px] text-text-primary font-medium">
+                              {aiEnabled ? '🤖 AI Judge — ON' : '⚡ Quick Log — +20 pts'}
+                            </span>
+                            <span className="text-[10px] text-text-tertiary">
+                              {aiEnabled ? 'AI scores your output (10-100 pts)' : 'Instant save, flat 20 points'}
+                            </span>
                           </div>
-                        </div>
-                      )}
+                          <div className={`w-11 h-6 rounded-full relative transition-colors ${aiEnabled ? 'bg-accent' : 'bg-surface-raised border border-border'}`}>
+                            <div className={`w-4 h-4 rounded-full bg-white absolute top-1 transition-transform ${aiEnabled ? 'left-6' : 'left-1'}`} />
+                          </div>
+                        </button>
+
+                        {/* AI Model Selector — only when AI is ON */}
+                        {aiEnabled && outputText.trim().length > 10 && (
+                          <div className="space-y-2">
+                            <label className="text-[10px] uppercase tracking-[2px] text-text-tertiary font-bold">AI Model</label>
+                            <div className="grid grid-cols-2 gap-1.5">
+                              {[
+                                { key: 'gemini-2.5-flash', label: 'Gemini 2.5' },
+                                { key: 'gemini-3-flash-preview', label: 'Gemini 3' },
+                                { key: 'gemini-3.1-pro-preview', label: 'Gemini 3.1' },
+                                { key: 'claude-3-5-sonnet-latest', label: 'Claude 4.5' },
+                              ].map(m => (
+                                <button
+                                  key={m.key}
+                                  onClick={() => setAiModel(m.key as any)}
+                                  className={`py-2 rounded-lg border text-[9px] font-bold uppercase tracking-wider transition-all ${aiModel === m.key ? 'bg-accent/10 border-accent text-accent' : 'bg-surface border-border text-text-tertiary'}`}
+                                >
+                                  {m.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </motion.div>
                   )}
                 </AnimatePresence>
@@ -754,7 +796,7 @@ export default function SubmitPage({
                       ) : (
                         <>
                           <Send size={16} />
-                          Log Output (+{getBaseScore(outputCategory)}{shouldUseAI(outputCategory) ? '+AI' : ''})
+                          {aiEnabled && outputText.trim().length > 10 ? 'Submit for AI Review' : 'Quick Log (+20)'}
                         </>
                       )}
                     </motion.button>

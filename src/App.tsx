@@ -9,6 +9,9 @@ import JournalPage from './components/JournalPage';
 import SystemPage from './components/SystemPage';
 import SubmitPage from './components/SubmitPage';
 import ProgressPage from './components/ProgressPage';
+import ProfilePage from './components/ProfilePage';
+import NotificationSettingsPage from './components/NotificationSettingsPage';
+import SkipOverlay from './components/SkipOverlay';
 import BottomNav from './components/BottomNav';
 import { X } from 'lucide-react';
 import { UserProfile, ScoreHistory, Submission } from './types';
@@ -20,6 +23,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('today');
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [showInstallPrompt, setShowInstallPrompt] = useState(false);
+  const [showSkipOverlay, setShowSkipOverlay] = useState(false);
 
   const todayStr = format(new Date(), 'yyyy-MM-dd');
 
@@ -34,7 +38,7 @@ export default function App() {
     setProfile(prev => {
       const base = prev || { streak: 0, score: 0 };
       
-      const allowedFields = ['streak', 'lastCheckin', 'startDate', 'score', 'notificationTime', 'naggingEnabled', 'naggingFrequency', 'quotas', 'graceDaysUsed', 'lastGraceDayWeek'];
+      const allowedFields = ['streak', 'lastCheckin', 'startDate', 'score', 'notificationTime', 'sleepTime', 'workStart', 'workEnd', 'naggingEnabled', 'naggingFrequency', 'weeklyReviewDay', 'weeklyReviewTime', 'quotas', 'graceDaysUsed', 'lastGraceDayWeek'];
       const sanitizedUpdates: any = {};
       for (const key of Object.keys(updates)) {
         if (allowedFields.includes(key)) {
@@ -95,8 +99,29 @@ export default function App() {
     });
   }, []);
 
+  // Handle URL params from notification clicks (e.g. ?action=skip&tab=submit)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const action = params.get('action');
+    const tab = params.get('tab');
+
+    if (action === 'skip') {
+      setShowSkipOverlay(true);
+    }
+    if (tab && ['today', 'submit', 'progress', 'journal', 'system', 'profile'].includes(tab)) {
+      setActiveTab(tab);
+    }
+
+    // Clean up URL params after reading
+    if (action || tab) {
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
+
   // Auth and Score Logic
   useEffect(() => {
+    const isDevMode = new URLSearchParams(window.location.search).get('dev') === 'true';
+
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (currentUser) {
         setUser(currentUser);
@@ -118,7 +143,7 @@ export default function App() {
               ...currentProfile
             };
             
-            const allowedFields = ['streak', 'lastCheckin', 'startDate', 'score', 'notificationTime', 'naggingEnabled', 'naggingFrequency', 'quotas', 'graceDaysUsed', 'lastGraceDayWeek'];
+            const allowedFields = ['streak', 'lastCheckin', 'startDate', 'score', 'notificationTime', 'sleepTime', 'workStart', 'workEnd', 'naggingEnabled', 'naggingFrequency', 'weeklyReviewDay', 'weeklyReviewTime', 'quotas', 'graceDaysUsed', 'lastGraceDayWeek'];
             const sanitizedProfile: any = {};
             for (const key of Object.keys(initialProfile)) {
               if (allowedFields.includes(key)) {
@@ -136,6 +161,31 @@ export default function App() {
         } catch (error) {
           handleFirestoreError(error, OperationType.GET, `users/${currentUser.uid}`);
         }
+      } else if (isDevMode) {
+        // ─── DEV AUTH BYPASS ───
+        const mockUser = {
+          uid: 'dev-user-123',
+          displayName: 'Dev Tester',
+          email: 'dev@test.com',
+          photoURL: null,
+        };
+        setUser(mockUser);
+        const savedProfile = loadProfile();
+        const devProfile: UserProfile = {
+          streak: 5,
+          score: 42,
+          startDate: todayStr,
+          notificationTime: '08:00',
+          sleepTime: '23:00',
+          workStart: '10:00',
+          workEnd: '20:00',
+          naggingEnabled: true,
+          naggingFrequency: 3,
+          weeklyReviewDay: 0,
+          weeklyReviewTime: '20:00',
+          ...savedProfile,
+        };
+        updateProfile(devProfile);
       } else {
         setUser(null);
       }
@@ -171,42 +221,114 @@ export default function App() {
     }
   }, [profile, user, todayStr, updateProfile]);
 
-  // Notification Logic
+  // ─── 6-Tier Notification Engine ─────────────────────────────────
   useEffect(() => {
     if (!('Notification' in window) || Notification.permission !== 'granted' || !profile) return;
 
+    // Helper: parse "HH:mm" to { h, m }
+    const parseTime = (t: string) => {
+      const [h, m] = (t || '00:00').split(':').map(Number);
+      return { h, m };
+    };
+
+    // Helper: get minutes since midnight
+    const toMinutes = (h: number, m: number) => h * 60 + m;
+
+    // Prevent duplicate notifications per type per day
+    const notifKey = (type: string) => `notif-${type}-${todayStr}`;
+    const hasFired = (type: string) => localStorage.getItem(notifKey(type)) === 'true';
+    const markFired = (type: string) => localStorage.setItem(notifKey(type), 'true');
+
     const checkNotifications = () => {
       const now = new Date();
-      const currentHourMin = format(now, 'HH:mm');
-      
-      // 1. Morning Briefing
-      if (currentHourMin === profile.notificationTime) {
-        new Notification('The System Journal', {
-          body: `Morning briefing: Your streak is at ${profile.streak}. Don't break it today.`,
-          icon: '/icons/icon-192x192.png'
-        });
-      }
+      const nowH = now.getHours();
+      const nowM = now.getMinutes();
+      const nowMin = toMinutes(nowH, nowM);
 
-      // 2. Nagging Alerts
-      const submissions: Submission[] = JSON.parse(localStorage.getItem('king-submissions') || '[]');
-      const hasSubmittedToday = submissions.some(s => s.date === todayStr);
+      const wake = parseTime(profile.notificationTime || '08:00');
+      const sleep = parseTime(profile.sleepTime || '23:00');
+      const wakeMin = toMinutes(wake.h, wake.m);
+      const sleepMin = toMinutes(sleep.h, sleep.m);
 
+      // Don't fire anything outside wake-sleep window
+      if (nowMin < wakeMin || nowMin > sleepMin) return;
+
+      const wsH = parseTime(profile.workStart || '10:00').h;
+      const weH = parseTime(profile.workEnd || '20:00').h;
       const naggingEnabled = profile.naggingEnabled !== false;
       const naggingFreq = profile.naggingFrequency || 3;
 
-      if (naggingEnabled && !hasSubmittedToday) {
-        const hour = now.getHours();
-        // Nag between 12:00 and 21:00 based on frequency
-        if (hour >= 12 && hour <= 21 && (hour - 12) % naggingFreq === 0 && now.getMinutes() === 0) {
-          new Notification('The System Journal', {
-            body: "You haven't submitted your proof today. The System is waiting.",
-            icon: '/icons/icon-192x192.png'
-          });
+      // Data checks
+      const submissions: Submission[] = JSON.parse(localStorage.getItem('king-submissions') || '[]');
+      const hasOutputToday = submissions.some(s => s.date === todayStr);
+      const todayInputs = JSON.parse(localStorage.getItem('king-inputs') || '[]')
+        .filter((i: any) => i.date === todayStr);
+      const hasInputToday = todayInputs.length > 0;
+
+      // ── [A] MORNING BRIEF ── 15 min after wake time, once daily
+      const briefMin = wakeMin + 15;
+      if (nowMin === briefMin && !hasFired('morning-brief')) {
+        markFired('morning-brief');
+        new Notification('The System Journal', {
+          body: `Day ${Math.max(1, Math.ceil((Date.now() - new Date(profile.startDate || todayStr).getTime()) / 86400000))} · Score: ${profile.score || 0} · Streak: ${profile.streak || 0}`,
+          icon: '/icons/icon-192x192.png',
+          tag: 'morning-brief'
+        });
+      }
+
+      // ── [B] INPUT CHECK ── 2h after wake, only if no input logged
+      const inputCheckMin = wakeMin + 120;
+      if (nowMin === inputCheckMin && !hasInputToday && !hasFired('input-check')) {
+        markFired('input-check');
+        new Notification('The System Journal', {
+          body: 'What are you consuming today? Log it.',
+          icon: '/icons/icon-192x192.png',
+          tag: 'input-check'
+        });
+      }
+
+      // ── [C] OUTPUT NUDGE ── Every naggingFreq hours during work window
+      if (naggingEnabled && !hasOutputToday && nowH >= wsH && nowH <= weH) {
+        if ((nowH - wsH) % naggingFreq === 0 && nowM === 0) {
+          const nudgeKey = `output-nudge-${nowH}`;
+          if (!hasFired(nudgeKey)) {
+            markFired(nudgeKey);
+            new Notification('The System Journal', {
+              body: 'No output yet today. Your score is decaying.',
+              icon: '/icons/icon-192x192.png',
+              tag: 'output-nudge'
+            });
+          }
         }
+      }
+
+      // ── [D] RATIO WARNING ── 2h before sleep, if input but no output
+      const ratioWarnMin = sleepMin - 120;
+      if (nowMin === ratioWarnMin && hasInputToday && !hasOutputToday && !hasFired('ratio-warning')) {
+        markFired('ratio-warning');
+        new Notification('The System Journal', {
+          body: 'You consumed but didn\'t create today. -15 points in 2 hours.',
+          icon: '/icons/icon-192x192.png',
+          tag: 'ratio-warning'
+        });
+      }
+
+      // ── [F] WEEKLY REVIEW ── user-configured day + time
+      const reviewDay = profile.weeklyReviewDay ?? 0;
+      const reviewTime = parseTime(profile.weeklyReviewTime || '20:00');
+      if (now.getDay() === reviewDay && nowH === reviewTime.h && nowM === reviewTime.m && !hasFired('weekly-review')) {
+        markFired('weekly-review');
+        new Notification('The System Journal', {
+          body: 'Your weekly review is ready. Open for full progress.',
+          icon: '/icons/icon-192x192.png',
+          tag: 'weekly-review'
+        });
       }
     };
 
-    const interval = setInterval(checkNotifications, 60000); // Check every minute
+    // Run once immediately + every minute
+    checkNotifications();
+    const interval = setInterval(checkNotifications, 60000);
     return () => clearInterval(interval);
   }, [profile, todayStr]);
 
@@ -325,10 +447,27 @@ export default function App() {
           {activeTab === 'progress' && <ProgressPage />}
           {activeTab === 'journal' && <JournalPage user={user} />}
           {activeTab === 'system' && <SystemPage user={user} profile={profile} onUpdateProfile={updateProfile} />}
+          {activeTab === 'profile' && <ProfilePage user={user} profile={profile} onUpdateProfile={updateProfile} onNavigateToNotifications={() => setActiveTab('notifications')} />}
+          {activeTab === 'notifications' && <NotificationSettingsPage profile={profile} onUpdateProfile={updateProfile} onBack={() => setActiveTab('profile')} />}
         </motion.div>
       </AnimatePresence>
       
       <BottomNav activeTab={activeTab} setActiveTab={setActiveTab} />
+
+      {/* Skip Overlay — renders above everything */}
+      <AnimatePresence>
+        {showSkipOverlay && (
+          <SkipOverlay
+            profile={profile}
+            onUpdateProfile={updateProfile}
+            onClose={() => setShowSkipOverlay(false)}
+            onSubmitInstead={() => {
+              setShowSkipOverlay(false);
+              setActiveTab('submit');
+            }}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
