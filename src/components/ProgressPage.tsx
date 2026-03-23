@@ -9,7 +9,8 @@ import {
 } from 'recharts';
 import {
   TrendingUp, Target, Activity, Zap, Award, BarChart3, ShieldCheck,
-  ChevronDown, ChevronUp, Flame, Clock, Dumbbell, Smile
+  ChevronDown, ChevronUp, Flame, Clock, Dumbbell, Smile,
+  CalendarDays, Lightbulb
 } from 'lucide-react';
 import {
   ScoreHistory, UserProfile, Submission, InputLog,
@@ -54,6 +55,7 @@ function CollapsibleSection({ title, icon: Icon, children, defaultOpen = false }
 }
 
 export default function ProgressPage() {
+  const [timeframe, setTimeframe] = useState<7 | 30 | 90>(30);
   const profile: UserProfile = useMemo(() => {
     return JSON.parse(localStorage.getItem(`king-system-${auth.currentUser?.uid || 'guest'}`) || '{"streak":0,"score":0}');
   }, []);
@@ -72,11 +74,11 @@ export default function ProgressPage() {
 
   // ── Computed Data ──────────────────────────────────────────────
 
-  // Last 30 days chart data
+  // Chart data based on timeframe
   const chartData = useMemo(() => {
     const data = [];
     const today = new Date();
-    for (let i = 29; i >= 0; i--) {
+    for (let i = timeframe - 1; i >= 0; i--) {
       const date = new Date();
       date.setDate(today.getDate() - i);
       const dateStr = date.toISOString().split('T')[0];
@@ -105,45 +107,45 @@ export default function ProgressPage() {
       });
     }
     return data;
-  }, [history, submissions, inputs]);
+  }, [history, submissions, inputs, timeframe]);
 
   // Stats
   const stats = useMemo(() => {
-    const last7 = Array.from({ length: 7 }, (_, i) => {
+    const periodDays = Array.from({ length: timeframe }, (_, i) => {
       const d = new Date();
       d.setDate(d.getDate() - i);
       return d.toISOString().split('T')[0];
     });
 
-    const weekSubmissions = submissions.filter(s => last7.includes(s.date));
-    const weekInputs = inputs.filter(i => last7.includes(i.date));
+    const periodSubs = submissions.filter(s => periodDays.includes(s.date));
+    const periodInputs = inputs.filter(i => periodDays.includes(i.date));
 
-    const totalOutputScore = weekSubmissions.reduce((s, sub) => s + sub.score, 0);
-    const totalInputHours = weekInputs.reduce((s, inp) => s + inp.durationMinutes, 0) / 60;
-    const ratio = totalInputHours > 0 ? +(totalInputHours / Math.max(weekSubmissions.length || 1, 1)).toFixed(1) : 0;
+    const totalOutputScore = periodSubs.reduce((s, sub) => s + sub.score, 0);
+    const totalInputHours = periodInputs.reduce((s, inp) => s + inp.durationMinutes, 0) / 60;
+    const ratio = totalInputHours > 0 ? +(totalOutputScore / Math.max(totalInputHours, 1)).toFixed(1) : totalOutputScore > 0 ? totalOutputScore : 0;
 
-    const consistency = Math.round((new Set(submissions.filter(s => last7.includes(s.date)).map(s => s.date)).size / 7) * 100);
+    const consistency = Math.round((new Set(periodSubs.map(s => s.date)).size / timeframe) * 100);
 
     const scoreNow = profile.score || 0;
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    const sevenStr = sevenDaysAgo.toISOString().split('T')[0];
-    const scoreThenEntry = history.filter(h => h.date <= sevenStr).sort((a, b) => b.date.localeCompare(a.date))[0];
+    const periodDaysAgo = new Date();
+    periodDaysAgo.setDate(periodDaysAgo.getDate() - timeframe);
+    const periodStr = periodDaysAgo.toISOString().split('T')[0];
+    const scoreThenEntry = history.filter(h => h.date <= periodStr).sort((a, b) => b.date.localeCompare(a.date))[0];
     const velocity = scoreNow - (scoreThenEntry?.score || 0);
 
     return { totalOutputScore, totalInputHours: +totalInputHours.toFixed(1), ratio, consistency, velocity };
-  }, [submissions, inputs, history, profile.score]);
+  }, [submissions, inputs, history, profile.score, timeframe]);
 
   // Radar data
   const radarData = useMemo(() => {
-    const last30 = Array.from({ length: 30 }, (_, i) => {
+    const periodDays = Array.from({ length: timeframe }, (_, i) => {
       const d = new Date();
       d.setDate(d.getDate() - i);
       return d.toISOString().split('T')[0];
     });
 
-    const recentSubs = submissions.filter(s => last30.includes(s.date));
-    const recentInputs = inputs.filter(i => last30.includes(i.date));
+    const recentSubs = submissions.filter(s => periodDays.includes(s.date));
+    const recentInputs = inputs.filter(i => periodDays.includes(i.date));
 
     const creativeMins = recentSubs.filter(s => ['writing', 'scripting', 'video-editing', 'website', 'other'].includes(s.category)).length * 30;
     const physicalMins = recentSubs.filter(s => s.category === 'fitness').reduce((sum, s) => sum + (s.durationMinutes || 30), 0);
@@ -162,14 +164,14 @@ export default function ProgressPage() {
       { subject: 'Entertainment', value: Math.round((entertainmentMins / max) * 100), fullMark: 100 },
       { subject: 'Life', value: Math.round((lifeMins / max) * 100), fullMark: 100 },
     ];
-  }, [submissions, inputs]);
+  }, [submissions, inputs, timeframe]);
 
   // Fitness progression
   const fitnessData = useMemo(() => {
     const today = new Date();
-    return Array.from({ length: 30 }, (_, i) => {
+    return Array.from({ length: timeframe }, (_, i) => {
       const date = new Date();
-      date.setDate(today.getDate() - (29 - i));
+      date.setDate(today.getDate() - ((timeframe - 1) - i));
       const dateStr = date.toISOString().split('T')[0];
       const daySubs = submissions.filter(s => s.date === dateStr && s.category === 'fitness');
       return {
@@ -177,7 +179,7 @@ export default function ProgressPage() {
         score: daySubs.reduce((s, sub) => s + sub.score, 0),
       };
     });
-  }, [submissions]);
+  }, [submissions, timeframe]);
 
   // Mood correlation
   const moodData = useMemo(() => {
@@ -204,103 +206,154 @@ export default function ProgressPage() {
     return allEvents.sort((a, b) => b.createdAt - a.createdAt).slice(0, 15);
   }, [submissions, inputs]);
 
-  // Weekly summary
-  const weeklySummary = useMemo(() => {
-    const last7 = Array.from({ length: 7 }, (_, i) => {
+  // Period summary
+  const periodSummary = useMemo(() => {
+    const periodDays = Array.from({ length: timeframe }, (_, i) => {
       const d = new Date();
       d.setDate(d.getDate() - i);
       return d.toISOString().split('T')[0];
     });
 
-    const weekSubs = submissions.filter(s => last7.includes(s.date));
-    const weekInputs = inputs.filter(i => last7.includes(i.date));
+    const periodSubs = submissions.filter(s => periodDays.includes(s.date));
+    const periodInputs = inputs.filter(i => periodDays.includes(i.date));
 
-    const bestDay = weekSubs.length > 0
-      ? Object.entries(weekSubs.reduce((acc, s) => { acc[s.date] = (acc[s.date] || 0) + s.score; return acc; }, {} as Record<string, number>))
+    const bestDay = periodSubs.length > 0
+      ? Object.entries(periodSubs.reduce((acc, s) => { acc[s.date] = (acc[s.date] || 0) + s.score; return acc; }, {} as Record<string, number>))
         .sort((a, b) => b[1] - a[1])[0]
       : null;
 
-    const favCategory = weekSubs.length > 0
-      ? Object.entries(weekSubs.reduce((acc, s) => { acc[s.category] = (acc[s.category] || 0) + 1; return acc; }, {} as Record<string, number>))
+    const favCategory = periodSubs.length > 0
+      ? Object.entries(periodSubs.reduce((acc, s) => { acc[s.category] = (acc[s.category] || 0) + 1; return acc; }, {} as Record<string, number>))
         .sort((a, b) => b[1] - a[1])[0]?.[0]
       : null;
 
     return {
-      totalOutput: weekSubs.reduce((s, sub) => s + sub.score, 0),
-      totalInputHours: +(weekInputs.reduce((s, i) => s + i.durationMinutes, 0) / 60).toFixed(1),
+      totalOutput: periodSubs.reduce((s, sub) => s + sub.score, 0),
+      totalInputHours: +(periodInputs.reduce((s, i) => s + i.durationMinutes, 0) / 60).toFixed(1),
       bestDay: bestDay ? { date: bestDay[0], score: bestDay[1] } : null,
       favCategory: favCategory ? OUTPUT_CATEGORIES.find(c => c.id === favCategory)?.label || favCategory : null,
       streakTrend: stats.velocity > 0 ? '↑' : stats.velocity < 0 ? '↓' : '→',
     };
-  }, [submissions, inputs, stats.velocity]);
+  }, [submissions, inputs, stats.velocity, timeframe]);
+
+  // Insights computation
+  const insights = useMemo(() => {
+    if (stats.ratio >= 2) return "Mighty effort! You are producing far more than consuming. Keep prioritizing deep work.";
+    if (stats.velocity < 0) return "Momentum is dipping slightly. Focus on shipping one small output today to turn it around.";
+    if (periodSummary.totalOutput > 50) return `You're thriving! ${periodSummary.favCategory} is clearly your superpower right now.`;
+    return "Consistent effort builds empires. Keep showing up every day.";
+  }, [stats.ratio, stats.velocity, periodSummary]);
+
+  // Consistency Heatmap logic
+  const heatmapDays = useMemo(() => {
+    const days = [];
+    const today = new Date();
+    for (let i = timeframe - 1; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(today.getDate() - i);
+      const dateStr = d.toISOString().split('T')[0];
+      const active = submissions.some(s => s.date === dateStr);
+      days.push({ date: dateStr, active });
+    }
+    return days;
+  }, [submissions, timeframe]);
 
   return (
     <div className="p-6 space-y-5 pb-28 max-w-2xl mx-auto">
-      {/* Header */}
-      <header className="space-y-1">
-        <div className="flex items-center gap-2 text-accent font-mono text-[10px] tracking-[2px] uppercase font-bold mb-1">
-          <Activity size={12} />
-          Growth Diagnostics
+      {/* Header & Timeframe */}
+      <div className="flex items-start justify-between mb-6">
+        <header className="space-y-1">
+          <div className="flex items-center gap-2 text-accent font-mono text-[10px] tracking-[2px] uppercase font-bold mb-1">
+            <Activity size={12} />
+            Growth Diagnostics
+          </div>
+          <h1 className="text-4xl font-serif font-bold text-text-primary tracking-tight">Evolution</h1>
+          <p className="text-text-tertiary text-xs font-medium uppercase tracking-widest">Your data tells your story</p>
+        </header>
+        
+        <div className="flex bg-surface-raised rounded-lg p-1 border border-border">
+          {[7, 30, 90].map(t => (
+            <button
+              key={t}
+              onClick={() => setTimeframe(t as 7 | 30 | 90)}
+              className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${timeframe === t ? 'bg-accent text-bg' : 'text-text-tertiary hover:text-text-primary'}`}
+            >
+              {t}D
+            </button>
+          ))}
         </div>
-        <h1 className="text-4xl font-serif font-bold text-text-primary tracking-tight">Evolution</h1>
-        <p className="text-text-tertiary text-xs font-medium uppercase tracking-widest">Your data tells your story</p>
-      </header>
+      </div>
+
+      {/* ── Actionable Insights ── */}
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="bg-accent/10 border border-accent/20 rounded-2xl p-4 flex items-start gap-4"
+      >
+        <div className="bg-accent/20 p-2 rounded-xl text-accent"><Lightbulb size={24} /></div>
+        <div>
+          <h3 className="text-sm font-bold text-text-primary mb-1">Insight</h3>
+          <p className="text-sm text-text-primary/80 leading-relaxed">{insights}</p>
+        </div>
+      </motion.div>
 
       {/* ── Section 1: Hero Metrics ── */}
       <div className="grid grid-cols-3 gap-3">
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="bg-surface-raised border border-border rounded-2xl p-4 text-center"
-        >
-          <div className="text-[9px] uppercase tracking-[2px] text-text-tertiary font-bold mb-1">I/O Ratio</div>
-          <div className="text-2xl font-serif font-bold text-accent">{stats.ratio}×</div>
-          <div className="text-[8px] text-text-tertiary uppercase mt-0.5">This Week</div>
-        </motion.div>
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.05 }}
-          className="bg-surface-raised border border-border rounded-2xl p-4 text-center"
-        >
-          <div className="text-[9px] uppercase tracking-[2px] text-text-tertiary font-bold mb-1">Total Score</div>
-          <div className="text-2xl font-serif font-bold text-text-primary">{profile.score || 0}</div>
-          <div className="text-[8px] text-text-tertiary uppercase mt-0.5">Points</div>
-        </motion.div>
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
           className="bg-surface-raised border border-border rounded-2xl p-4 text-center"
         >
+          <div className="text-[9px] uppercase tracking-[2px] text-text-tertiary font-bold mb-1">Total Score</div>
+          <div className="text-3xl font-serif font-bold text-text-primary">{profile.score || 0}</div>
+        </motion.div>
+        
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 }}
+          className="bg-surface-raised border border-border rounded-2xl p-4 text-center"
+        >
           <div className="text-[9px] uppercase tracking-[2px] text-text-tertiary font-bold mb-1">Streak</div>
-          <div className="text-2xl font-serif font-bold text-text-primary">{profile.streak || 0}</div>
-          <div className="text-[8px] text-text-tertiary uppercase mt-0.5">Days</div>
+          <div className="text-3xl font-serif font-bold text-accent">{profile.streak || 0}<span className="text-base text-accent/50 ml-1">🔥</span></div>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.3 }}
+          className="bg-surface-raised border border-border rounded-2xl p-4 text-center relative overflow-hidden"
+        >
+          <div className="text-[9px] uppercase tracking-[2px] text-text-tertiary font-bold mb-1">I/O Ratio</div>
+          <div className="text-3xl font-serif font-bold text-text-primary">{stats.ratio}<span className="text-base text-text-tertiary ml-1">×</span></div>
         </motion.div>
       </div>
 
-      {/* Secondary row */}
-      <div className="grid grid-cols-3 gap-3">
-        <div className="bg-surface border border-border rounded-xl p-3 text-center">
-          <div className="text-[9px] uppercase tracking-widest text-text-tertiary font-bold mb-1">Consistency</div>
-          <div className="text-lg font-serif font-bold text-text-primary">{stats.consistency}%</div>
-          <div className="w-full h-1 bg-border rounded-full mt-2 overflow-hidden">
-            <motion.div className="h-full bg-accent rounded-full" initial={{ width: 0 }} animate={{ width: `${stats.consistency}%` }} transition={{ duration: 1 }} />
+      {/* ── Consistency Heatmap ── */}
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.4 }}
+        className="bg-surface border border-border rounded-2xl p-5"
+      >
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <CalendarDays size={14} className="text-text-tertiary" />
+            <span className="text-xs font-bold uppercase tracking-[2px] text-text-primary">Consistency Matrix</span>
           </div>
+          <div className="text-xl font-serif font-bold text-accent">{stats.consistency}%</div>
         </div>
-        <div className="bg-surface border border-border rounded-xl p-3 text-center">
-          <div className="text-[9px] uppercase tracking-widest text-text-tertiary font-bold mb-1">Velocity</div>
-          <div className={`text-lg font-serif font-bold ${stats.velocity >= 0 ? 'text-green' : 'text-red'}`}>
-            {stats.velocity >= 0 ? '+' : ''}{stats.velocity}
-          </div>
-          <div className="text-[8px] text-text-tertiary uppercase font-bold mt-1">7-Day Δ</div>
+        <div className="flex flex-wrap gap-1.5">
+          {heatmapDays.map((day, i) => (
+            <div
+              key={i}
+              title={day.date}
+              className={`w-4 h-4 rounded-sm sm:w-5 sm:h-5 sm:rounded-md transition-colors ${day.active ? 'bg-accent shadow-[0_0_8px_rgba(232,127,85,0.4)]' : 'bg-surface-raised border border-border/50'}`}
+            />
+          ))}
         </div>
-        <div className="bg-surface border border-border rounded-xl p-3 text-center">
-          <div className="text-[9px] uppercase tracking-widest text-text-tertiary font-bold mb-1">Outputs</div>
-          <div className="text-lg font-serif font-bold text-text-primary">{submissions.length}</div>
-          <div className="text-[8px] text-text-tertiary uppercase font-bold mt-1">Total</div>
-        </div>
-      </div>
+      </motion.div>
 
       {/* ── Section 2: Behavior Radar ── */}
       <CollapsibleSection title="Behavior Profile" icon={Target} defaultOpen={true}>
@@ -478,43 +531,43 @@ export default function ProgressPage() {
         </div>
       </CollapsibleSection>
 
-      {/* ── Section 8: Weekly Summary ── */}
+      {/* ── Section 8: Period Snapshot ── */}
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
-        className="bg-accent/5 border border-accent/10 rounded-2xl p-5 space-y-3"
+        className="bg-surface-raised border border-border rounded-2xl p-5 space-y-3"
       >
         <div className="flex items-center gap-2 mb-2">
-          <Flame size={14} className="text-accent" />
-          <span className="text-xs font-bold uppercase tracking-[2px] text-text-primary">Weekly Report</span>
+          <Target size={14} className="text-text-tertiary" />
+          <span className="text-xs font-bold uppercase tracking-[2px] text-text-primary">Period Snapshot ({timeframe}D)</span>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
             <div className="text-[9px] uppercase tracking-widest text-text-tertiary font-bold">Output Score</div>
-            <div className="text-xl font-serif font-bold text-accent">{weeklySummary.totalOutput}</div>
+            <div className="text-xl font-serif font-bold text-accent">{periodSummary.totalOutput}</div>
           </div>
           <div>
             <div className="text-[9px] uppercase tracking-widest text-text-tertiary font-bold">Hours Consumed</div>
-            <div className="text-xl font-serif font-bold text-text-primary">{weeklySummary.totalInputHours}h</div>
+            <div className="text-xl font-serif font-bold text-text-primary">{periodSummary.totalInputHours}h</div>
           </div>
           <div>
             <div className="text-[9px] uppercase tracking-widest text-text-tertiary font-bold">Best Day</div>
             <div className="text-sm text-text-primary font-medium">
-              {weeklySummary.bestDay
-                ? `${new Date(weeklySummary.bestDay.date).toLocaleDateString('en-US', { weekday: 'short' })} (+${weeklySummary.bestDay.score})`
+              {periodSummary.bestDay
+                ? `${new Date(periodSummary.bestDay.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} (+${periodSummary.bestDay.score})`
                 : '—'
               }
             </div>
           </div>
           <div>
             <div className="text-[9px] uppercase tracking-widest text-text-tertiary font-bold">Top Output</div>
-            <div className="text-sm text-text-primary font-medium">{weeklySummary.favCategory || '—'}</div>
+            <div className="text-sm text-text-primary font-medium">{periodSummary.favCategory || '—'}</div>
           </div>
         </div>
-        <div className="flex items-center gap-2 pt-2 border-t border-accent/10">
-          <span className="text-lg">{weeklySummary.streakTrend}</span>
+        <div className="flex items-center gap-2 pt-2 border-t border-border">
+          <span className="text-lg">{periodSummary.streakTrend}</span>
           <span className="text-[10px] text-text-tertiary font-bold uppercase tracking-wider">
-            {stats.velocity > 0 ? 'Momentum rising' : stats.velocity < 0 ? 'Momentum dipping — show up tomorrow' : 'Steady state'}
+            {stats.velocity > 0 ? 'Momentum is rising' : stats.velocity < 0 ? 'Momentum dipping — show up tomorrow' : 'Steady state'}
           </span>
         </div>
       </motion.div>

@@ -171,6 +171,37 @@ export default function App() {
             const merged = { ...currentProfile, ...remoteData };
             updateProfile(merged);
           }
+
+          // Initial Local-First Sync
+          const { collection, getDocs } = await import('firebase/firestore');
+          try {
+            const lInputs = localStorage.getItem(`king-inputs-${uid}`);
+            if (!lInputs || lInputs === '[]') {
+              const snap = await getDocs(collection(db, 'users', uid, 'inputs'));
+              if (snap.docs.length > 0) {
+                localStorage.setItem(`king-inputs-${uid}`, JSON.stringify(snap.docs.map(d => d.data())));
+              }
+            }
+
+            const lSubs = localStorage.getItem(`king-submissions-${uid}`);
+            if (!lSubs || lSubs === '[]') {
+              const snap = await getDocs(collection(db, 'users', uid, 'submissions'));
+              if (snap.docs.length > 0) {
+                localStorage.setItem(`king-submissions-${uid}`, JSON.stringify(snap.docs.map(d => d.data())));
+              }
+            }
+
+            const lScore = localStorage.getItem(`king-score-${uid}`);
+            if (!lScore || lScore === '[]') {
+              const snap = await getDocs(collection(db, 'users', uid, 'scoreHistory'));
+              if (snap.docs.length > 0) {
+                localStorage.setItem(`king-score-${uid}`, JSON.stringify(snap.docs.map(d => d.data())));
+              }
+            }
+          } catch (syncErr) {
+            console.error('Error syncing backend collections:', syncErr);
+          }
+
         } catch (error) {
           handleFirestoreError(error, OperationType.GET, `users/${currentUser.uid}`);
         }
@@ -229,6 +260,12 @@ export default function App() {
           // Update history
           const history: ScoreHistory[] = JSON.parse(localStorage.getItem(`king-score-${auth.currentUser?.uid || 'guest'}`) || '[]');
           localStorage.setItem(`king-score-${auth.currentUser?.uid || 'guest'}`, JSON.stringify([...history, { date: todayStr, score: newScore }]));
+
+          if (user && user.uid) {
+            import('firebase/firestore').then(({ collection, addDoc }) => {
+                addDoc(collection(db, 'users', user.uid, 'scoreHistory'), { date: todayStr, score: newScore }).catch(console.error);
+            });
+          }
         }
       }
     }

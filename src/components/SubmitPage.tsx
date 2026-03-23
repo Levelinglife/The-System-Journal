@@ -10,7 +10,7 @@ import {
   getInputScoreImpact
 } from '../types';
 import { db, auth } from '../firebase';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, setDoc, addDoc } from 'firebase/firestore';
 
 // Score celebration component
 function ScoreCelebration({ score, visible }: { score: number; visible: boolean }) {
@@ -164,6 +164,11 @@ export default function SubmitPage({
     const allInputs: InputLog[] = JSON.parse(localStorage.getItem(`king-inputs-${auth.currentUser?.uid || 'guest'}`) || '[]');
     localStorage.setItem(`king-inputs-${auth.currentUser?.uid || 'guest'}`, JSON.stringify([...allInputs, entry]));
 
+    // Sync to Backend
+    if (user) {
+      setDoc(doc(db, 'users', user.uid, 'inputs', entry.id), entry).catch(console.error);
+    }
+
     // Update score
     if (scoreImpact !== 0) {
       const newScore = (profile?.score || 0) + scoreImpact;
@@ -172,6 +177,10 @@ export default function SubmitPage({
       // Update score history
       const history: ScoreHistory[] = JSON.parse(localStorage.getItem(`king-score-${auth.currentUser?.uid || 'guest'}`) || '[]');
       localStorage.setItem(`king-score-${auth.currentUser?.uid || 'guest'}`, JSON.stringify([...history, { date: todayStr, score: newScore }]));
+      
+      if (user) {
+        addDoc(collection(db, 'users', user.uid, 'scoreHistory'), { date: todayStr, score: newScore }).catch(console.error);
+      }
     }
 
     // Show celebration
@@ -310,11 +319,19 @@ Return ONLY valid JSON:
       const submissions: Submission[] = JSON.parse(localStorage.getItem(`king-submissions-${auth.currentUser?.uid || 'guest'}`) || '[]');
       localStorage.setItem(`king-submissions-${auth.currentUser?.uid || 'guest'}`, JSON.stringify([...submissions, submission]));
 
+      if (user) {
+        setDoc(doc(db, 'users', user.uid, 'submissions', submission.id), submission).catch(console.error);
+      }
+
       const newScore = (profile?.score || 0) + score;
       onUpdateProfile({ score: newScore, lastCheckin: todayStr });
 
       const history: ScoreHistory[] = JSON.parse(localStorage.getItem(`king-score-${auth.currentUser?.uid || 'guest'}`) || '[]');
       localStorage.setItem(`king-score-${auth.currentUser?.uid || 'guest'}`, JSON.stringify([...history, { date: todayStr, score: newScore }]));
+
+      if (user) {
+        addDoc(collection(db, 'users', user.uid, 'scoreHistory'), { date: todayStr, score: newScore }).catch(console.error);
+      }
 
       setCelebration({ score, key: Date.now() });
       setTimeout(() => setCelebration(null), 1500);
