@@ -848,6 +848,11 @@ Return ONLY valid JSON:
                         +{outp.score}
                       </div>
                     </div>
+                    {outp.text && (
+                      <div className="bg-bg/50 rounded-lg p-2 text-[11px] text-text-secondary border border-border/30 italic">
+                        "{outp.text}"
+                      </div>
+                    )}
                     {outp.feedback && (
                       <div className="bg-surface-raised rounded-lg p-2 text-[11px] text-text-secondary border border-border/50">
                         <span className="font-bold text-accent">AI: </span>
