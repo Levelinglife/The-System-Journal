@@ -21,16 +21,20 @@ export default defineConfig(({mode}) => {
           theme_color: '#0D0C0A',
           background_color: '#0D0C0A',
           display: 'standalone',
+          start_url: '/',
+          scope: '/',
           icons: [
             {
-              src: 'https://picsum.photos/seed/system/192/192',
+              src: '/favicon.png',
               sizes: '192x192',
-              type: 'image/png'
+              type: 'image/png',
+              purpose: 'any maskable'
             },
             {
-              src: 'https://picsum.photos/seed/system/512/512',
+              src: '/favicon.png',
               sizes: '512x512',
-              type: 'image/png'
+              type: 'image/png',
+              purpose: 'any maskable'
             }
           ]
         }
