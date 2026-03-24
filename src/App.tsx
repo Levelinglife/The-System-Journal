@@ -208,6 +208,7 @@ export default function App() {
         } catch (error) {
           handleFirestoreError(error, OperationType.GET, `users/${currentUser.uid}`);
         }
+        setLoading(false);
       } else if (isDevMode) {
         // ─── DEV AUTH BYPASS ───
         const mockUser = {
@@ -233,6 +234,7 @@ export default function App() {
           ...savedProfile,
         };
         updateProfile(devProfile, 'dev-user-123');
+        setLoading(false);
       } else {
         setUser(null);
         setProfile(null); // Clear profile memory
