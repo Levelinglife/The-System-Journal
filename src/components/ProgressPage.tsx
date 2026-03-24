@@ -54,23 +54,20 @@ function CollapsibleSection({ title, icon: Icon, children, defaultOpen = false }
   );
 }
 
-export default function ProgressPage() {
+export default function ProgressPage({ user, profile }: { user: any, profile: UserProfile }) {
   const [timeframe, setTimeframe] = useState<7 | 30 | 90>(30);
-  const profile: UserProfile = useMemo(() => {
-    return JSON.parse(localStorage.getItem(`king-system-${auth.currentUser?.uid || 'guest'}`) || '{"streak":0,"score":0}');
-  }, []);
 
   const history: ScoreHistory[] = useMemo(() => {
-    return JSON.parse(localStorage.getItem(`king-score-${auth.currentUser?.uid || 'guest'}`) || '[]');
-  }, []);
+    return JSON.parse(localStorage.getItem(`king-score-${user?.uid || 'guest'}`) || '[]');
+  }, [user?.uid]);
 
   const submissions: Submission[] = useMemo(() => {
-    return JSON.parse(localStorage.getItem(`king-submissions-${auth.currentUser?.uid || 'guest'}`) || '[]');
-  }, []);
+    return JSON.parse(localStorage.getItem(`king-submissions-${user?.uid || 'guest'}`) || '[]');
+  }, [user?.uid]);
 
   const inputs: InputLog[] = useMemo(() => {
-    return JSON.parse(localStorage.getItem(`king-inputs-${auth.currentUser?.uid || 'guest'}`) || '[]');
-  }, []);
+    return JSON.parse(localStorage.getItem(`king-inputs-${user?.uid || 'guest'}`) || '[]');
+  }, [user?.uid]);
 
   // ── Computed Data ──────────────────────────────────────────────
 

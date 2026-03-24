@@ -28,17 +28,18 @@ export default function App() {
   const todayStr = format(new Date(), 'yyyy-MM-dd');
 
   // Load profile from localStorage and sync with state
-  const loadProfile = useCallback(() => {
-    const data = JSON.parse(localStorage.getItem(`king-system-${auth.currentUser?.uid || 'guest'}`) || '{"streak":0,"score":0}');
+  const loadProfile = useCallback((uid?: string) => {
+    const targetUid = uid || auth.currentUser?.uid || 'guest';
+    const data = JSON.parse(localStorage.getItem(`king-system-${targetUid}`) || '{"streak":0,"score":0}');
     setProfile(data);
     return data;
   }, []);
 
-  const updateProfile = useCallback((updates: Partial<UserProfile>) => {
+  const updateProfile = useCallback((updates: Partial<UserProfile>, uid?: string) => {
     setProfile(prev => {
       const base = prev || { streak: 0, score: 0 };
       
-      const allowedFields = ['streak', 'lastCheckin', 'startDate', 'score', 'notificationTime', 'sleepTime', 'workStart', 'workEnd', 'naggingEnabled', 'naggingFrequency', 'weeklyReviewDay', 'weeklyReviewTime', 'quotas', 'graceDaysUsed', 'lastGraceDayWeek'];
+      const allowedFields = ['streak', 'goalStreak', 'lastCheckin', 'lastGoalCheckin', 'startDate', 'score', 'notificationTime', 'sleepTime', 'workStart', 'workEnd', 'naggingEnabled', 'naggingFrequency', 'weeklyReviewDay', 'weeklyReviewTime', 'quotas', 'graceDaysUsed', 'lastGraceDayWeek'];
       const sanitizedUpdates: any = {};
       for (const key of Object.keys(updates)) {
         if (allowedFields.includes(key)) {
@@ -47,12 +48,14 @@ export default function App() {
       }
 
       const updated = { ...base, ...sanitizedUpdates };
-      localStorage.setItem(`king-system-${auth.currentUser?.uid || 'guest'}`, JSON.stringify(updated));
+      const targetUid = uid || auth.currentUser?.uid || 'guest';
+      localStorage.setItem(`king-system-${targetUid}`, JSON.stringify(updated));
       
       // Sync to Firestore if user is logged in
-      if (auth.currentUser) {
-        const userRef = doc(db, 'users', auth.currentUser.uid);
-        updateDoc(userRef, sanitizedUpdates).catch(err => handleFirestoreError(err, OperationType.UPDATE, `users/${auth.currentUser?.uid}`));
+      const finalUid = uid || auth.currentUser?.uid;
+      if (finalUid) {
+        const userRef = doc(db, 'users', finalUid);
+        updateDoc(userRef, sanitizedUpdates).catch(err => handleFirestoreError(err, OperationType.UPDATE, `users/${finalUid}`));
       }
       
       return updated;
@@ -143,7 +146,7 @@ export default function App() {
           const userRef = doc(db, 'users', currentUser.uid);
           const userSnap = await getDoc(userRef);
           
-          let currentProfile = loadProfile();
+          let currentProfile = loadProfile(uid);
 
           if (!userSnap.exists()) {
             const initialProfile: UserProfile = {
@@ -156,7 +159,7 @@ export default function App() {
               ...currentProfile
             };
             
-            const allowedFields = ['streak', 'lastCheckin', 'startDate', 'score', 'notificationTime', 'sleepTime', 'workStart', 'workEnd', 'naggingEnabled', 'naggingFrequency', 'weeklyReviewDay', 'weeklyReviewTime', 'quotas', 'graceDaysUsed', 'lastGraceDayWeek'];
+            const allowedFields = ['streak', 'goalStreak', 'lastCheckin', 'lastGoalCheckin', 'startDate', 'score', 'notificationTime', 'sleepTime', 'workStart', 'workEnd', 'naggingEnabled', 'naggingFrequency', 'weeklyReviewDay', 'weeklyReviewTime', 'quotas', 'graceDaysUsed', 'lastGraceDayWeek'];
             const sanitizedProfile: any = {};
             for (const key of Object.keys(initialProfile)) {
               if (allowedFields.includes(key)) {
@@ -165,11 +168,11 @@ export default function App() {
             }
             
             await setDoc(userRef, sanitizedProfile);
-            updateProfile(sanitizedProfile);
+            updateProfile(sanitizedProfile, uid);
           } else {
             const remoteData = userSnap.data() as UserProfile;
             const merged = { ...currentProfile, ...remoteData };
-            updateProfile(merged);
+            updateProfile(merged, uid);
           }
 
           // Initial Local-First Sync
@@ -229,11 +232,12 @@ export default function App() {
           weeklyReviewTime: '20:00',
           ...savedProfile,
         };
-        updateProfile(devProfile);
+        updateProfile(devProfile, 'dev-user-123');
       } else {
         setUser(null);
+        setProfile(null); // Clear profile memory
+        setLoading(false);
       }
-      setLoading(false);
     });
     return () => unsubscribe();
   }, [loadProfile, updateProfile, todayStr]);
@@ -529,7 +533,7 @@ export default function App() {
         >
           {activeTab === 'today' && <TodayPage user={user} profile={profile} onUpdateProfile={updateProfile} />}
           {activeTab === 'submit' && <SubmitPage user={user} profile={profile} onUpdateProfile={updateProfile} />}
-          {activeTab === 'progress' && <ProgressPage />}
+          {activeTab === 'progress' && <ProgressPage user={user} profile={profile!} />}
           {activeTab === 'journal' && <JournalPage user={user} />}
           {activeTab === 'system' && <SystemPage user={user} profile={profile} onUpdateProfile={updateProfile} />}
           {activeTab === 'profile' && <ProfilePage user={user} profile={profile} onUpdateProfile={updateProfile} onNavigateToNotifications={() => setActiveTab('notifications')} />}

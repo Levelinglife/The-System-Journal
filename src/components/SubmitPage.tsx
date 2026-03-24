@@ -87,14 +87,14 @@ export default function SubmitPage({
 
   // Compute today's used entertainment minutes
   const todayInputs: InputLog[] = useMemo(() => {
-    const all: InputLog[] = JSON.parse(localStorage.getItem(`king-inputs-${auth.currentUser?.uid || 'guest'}`) || '[]');
+    const all: InputLog[] = JSON.parse(localStorage.getItem(`king-inputs-${user?.uid || 'guest'}`) || '[]');
     return all.filter(i => i.date === todayStr);
-  }, [todayStr, inputSaving]); // re-compute after saving
+  }, [todayStr, inputSaving, user?.uid]); // re-compute after saving and user auth change
 
   const todayOutputs: Submission[] = useMemo(() => {
-    const all: Submission[] = JSON.parse(localStorage.getItem(`king-submissions-${auth.currentUser?.uid || 'guest'}`) || '[]');
+    const all: Submission[] = JSON.parse(localStorage.getItem(`king-submissions-${user?.uid || 'guest'}`) || '[]');
     return all.filter(s => s.date === todayStr);
-  }, [todayStr, outputSaving]);
+  }, [todayStr, outputSaving, user?.uid]);
 
   const entertainmentUsed = useMemo(() => {
     return todayInputs
