@@ -14,6 +14,32 @@ export default defineConfig(({mode}) => {
         devOptions: {
           enabled: true
         },
+        workbox: {
+          // Don't precache source maps
+          globPatterns: ['**/*.{js,css,html,ico,png,svg,webmanifest}'],
+          // Use network-first for page navigations so the PWA always loads fresh content
+          runtimeCaching: [
+            {
+              urlPattern: ({request}) => request.mode === 'navigate',
+              handler: 'NetworkFirst',
+              options: {
+                cacheName: 'pages',
+                networkTimeoutSeconds: 3,
+              }
+            },
+            {
+              urlPattern: ({url}) => url.pathname.startsWith('/assets/'),
+              handler: 'CacheFirst',
+              options: {
+                cacheName: 'assets',
+                expiration: {
+                  maxEntries: 50,
+                  maxAgeSeconds: 30 * 24 * 60 * 60, // 30 days
+                }
+              }
+            }
+          ]
+        },
         manifest: {
           name: 'The System Journal',
           short_name: 'System',

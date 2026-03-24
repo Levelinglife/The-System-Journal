@@ -70,16 +70,8 @@ export default function App() {
     }
   }, []);
 
-  // PWA Service Worker Registration
+  // PWA Install Prompt (SW registration handled by vite-plugin-pwa)
   useEffect(() => {
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/service-worker.js')
-          .then(reg => console.log('SW registered:', reg))
-          .catch(err => console.log('SW registration failed:', err));
-      });
-    }
-
     window.addEventListener('beforeinstallprompt', (e) => {
       e.preventDefault();
       setDeferredPrompt(e);
