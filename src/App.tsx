@@ -238,38 +238,73 @@ export default function App() {
     return () => unsubscribe();
   }, [loadProfile, updateProfile, todayStr]);
 
-  // Score Deduction Logic
+  // Daily Login & Score Deduction Logic
   useEffect(() => {
     if (!profile || !user) return;
 
-    if (profile.lastCheckin) {
-      const lastDate = parseISO(profile.lastCheckin);
-      const diff = differenceInDays(new Date(todayStr), lastDate);
+    if (!profile.lastCheckin) {
+      // First ever checkin
+      updateProfile({ lastCheckin: todayStr, streak: 1 });
+      return;
+    }
+
+    const lastDate = parseISO(profile.lastCheckin);
+    const diff = differenceInDays(new Date(todayStr), lastDate);
+    
+    if (diff === 1) {
+      // Consecutive day!
+      updateProfile({ 
+        streak: (profile.streak || 0) + 1,
+        lastCheckin: todayStr 
+      });
+    } else if (diff > 1) {
+      let missedDays = diff - 1;
+      let usedGrace = false;
+
+      // Check Grace Day logic
+      const currentWeek = format(new Date(todayStr), 'I'); // ISO week
+      const lastGraceWeek = profile.lastGraceDayWeek || '';
       
-      if (diff > 1) {
-        const missedDays = diff - 1;
+      if (currentWeek !== lastGraceWeek && missedDays === 1) {
+        // Use a grace day!
+        usedGrace = true;
+        missedDays = 0; // Protected!
+      }
+
+      if (missedDays > 0) {
+        // Deduct score
         const deduction = missedDays * 15;
         const newScore = Math.max(-100, (profile.score || 0) - deduction);
         
-        if (newScore !== profile.score) {
-          updateProfile({ 
-            score: newScore,
-            lastCheckin: todayStr // Prevent repeated deduction
-          });
-          
-          // Update history
-          const history: ScoreHistory[] = JSON.parse(localStorage.getItem(`king-score-${auth.currentUser?.uid || 'guest'}`) || '[]');
-          localStorage.setItem(`king-score-${auth.currentUser?.uid || 'guest'}`, JSON.stringify([...history, { date: todayStr, score: newScore }]));
+        // Reset both streaks because of missed days
+        updateProfile({ 
+          score: newScore,
+          streak: 1, // Reset login streak (since they logged in today, it's day 1)
+          goalStreak: 0,
+          lastCheckin: todayStr,
+          ...(usedGrace ? { lastGraceDayWeek: currentWeek, graceDaysUsed: 1 } : {})
+        });
+        
+        // Update history
+        const history: ScoreHistory[] = JSON.parse(localStorage.getItem(`king-score-${auth.currentUser?.uid || 'guest'}`) || '[]');
+        localStorage.setItem(`king-score-${auth.currentUser?.uid || 'guest'}`, JSON.stringify([...history, { date: todayStr, score: newScore }]));
 
-          if (user && user.uid) {
-            import('firebase/firestore').then(({ collection, addDoc }) => {
-                addDoc(collection(db, 'users', user.uid, 'scoreHistory'), { date: todayStr, score: newScore }).catch(console.error);
-            });
-          }
+        if (user && user.uid) {
+          import('firebase/firestore').then(({ collection, addDoc }) => {
+              addDoc(collection(db, 'users', user.uid, 'scoreHistory'), { date: todayStr, score: newScore }).catch(console.error);
+          });
         }
+      } else if (usedGrace) {
+        // Protected, just maintain streak
+        updateProfile({
+          streak: (profile.streak || 0) + 1,
+          lastCheckin: todayStr,
+          lastGraceDayWeek: currentWeek,
+          graceDaysUsed: 1
+        });
       }
     }
-  }, [profile, user, todayStr, updateProfile]);
+  }, [profile?.lastCheckin, profile?.streak, profile?.score, profile?.lastGraceDayWeek, user, todayStr, updateProfile]);
 
   // ─── 6-Tier Notification Engine ─────────────────────────────────
   useEffect(() => {

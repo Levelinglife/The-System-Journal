@@ -13,6 +13,8 @@ export interface UserProfile {
   weeklyReviewTime?: string; // HH:mm
   graceDaysUsed?: number; // out of 1 per 7 days
   lastGraceDayWeek?: string; // ISO week identifier
+  goalStreak?: number; // Streak for achieving all goals
+  lastGoalCheckin?: string; // Date of last goal completion
   quotas?: {
     learning: number; // in minutes, default 60
     entertainment: number; // in minutes, default 60

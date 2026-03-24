@@ -298,7 +298,7 @@ export default function ProgressPage() {
       </motion.div>
 
       {/* ── Section 1: Hero Metrics ── */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
@@ -315,8 +315,18 @@ export default function ProgressPage() {
           transition={{ delay: 0.2 }}
           className="bg-surface-raised border border-border rounded-2xl p-4 text-center"
         >
-          <div className="text-[9px] uppercase tracking-[2px] text-text-tertiary font-bold mb-1">Streak</div>
-          <div className="text-3xl font-serif font-bold text-accent">{profile.streak || 0}<span className="text-base text-accent/50 ml-1">🔥</span></div>
+          <div className="text-[9px] uppercase tracking-[2px] text-text-tertiary font-bold mb-1">App Logins</div>
+          <div className="text-3xl font-serif font-bold text-green">{profile.streak || 0}<span className="text-base text-green/50 ml-1">🔥</span></div>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.25 }}
+          className="bg-surface-raised border border-border rounded-2xl p-4 text-center"
+        >
+          <div className="text-[9px] uppercase tracking-[2px] text-text-tertiary font-bold mb-1">Goal Streak</div>
+          <div className="text-3xl font-serif font-bold text-purple-400">{profile.goalStreak || 0}<span className="text-base text-purple-400/50 ml-1">🎯</span></div>
         </motion.div>
 
         <motion.div
