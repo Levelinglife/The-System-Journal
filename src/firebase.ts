@@ -16,7 +16,8 @@ async function testConnection() {
     }
   }
 }
-testConnection();
+// Defer connection test so it doesn't compete with auth on slow networks
+setTimeout(testConnection, 5000);
 
 export enum OperationType {
   CREATE = 'create',

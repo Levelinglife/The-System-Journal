@@ -21,7 +21,7 @@
     // One-time cleanup: nuke old stale service workers and caches
     // This runs BEFORE React loads to break the stale cache cycle
     (function() {
-      var CLEANUP_VERSION = 'v2'; // Bump this to force another cleanup
+      var CLEANUP_VERSION = 'v3'; // Bump this to force another cleanup
       if (localStorage.getItem('sw-cleanup') !== CLEANUP_VERSION) {
         if ('serviceWorker' in navigator) {
           navigator.serviceWorker.getRegistrations().then(function(registrations) {

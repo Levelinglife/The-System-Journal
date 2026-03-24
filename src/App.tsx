@@ -62,6 +62,19 @@ export default function App() {
     });
   }, []);
 
+  // Safety timeout: if Firebase Auth takes too long, stop loading
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      setLoading((current: boolean) => {
+        if (current) {
+          console.warn('Auth timeout — showing login screen (Firebase may be slow)');
+        }
+        return false;
+      });
+    }, 4000);
+    return () => clearTimeout(timeout);
+  }, []);
+
   // Theme initialization
   useEffect(() => {
     const savedTheme = localStorage.getItem('theme') || 'dark';
@@ -171,31 +184,55 @@ export default function App() {
               updateProfile(merged, uid);
             }
 
-            // Sync collections in background
-            const { collection, getDocs } = await import('firebase/firestore');
-            const lInputs = localStorage.getItem(`king-inputs-${uid}`);
-            if (!lInputs || lInputs === '[]') {
-              const snap = await getDocs(collection(db, 'users', uid, 'inputs'));
-              if (snap.docs.length > 0) {
-                localStorage.setItem(`king-inputs-${uid}`, JSON.stringify(snap.docs.map(d => d.data())));
+            // Sync collections in background — ALWAYS merge local + remote
+            const { collection, getDocs, setDoc: setDocFn, doc: docFn } = await import('firebase/firestore');
+
+            // Helper: merge local and remote arrays by 'id' field, keeping all unique entries
+            const mergeById = (local: any[], remote: any[]): any[] => {
+              const map = new Map<string, any>();
+              for (const item of local) {
+                if (item.id) map.set(item.id, item);
+              }
+              for (const item of remote) {
+                if (item.id) map.set(item.id, item);
+              }
+              return Array.from(map.values());
+            };
+
+            // --- Inputs ---
+            const localInputs: any[] = JSON.parse(localStorage.getItem(`king-inputs-${uid}`) || '[]');
+            const inputSnap = await getDocs(collection(db, 'users', uid, 'inputs'));
+            const remoteInputs = inputSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+            const mergedInputs = mergeById(localInputs, remoteInputs);
+            localStorage.setItem(`king-inputs-${uid}`, JSON.stringify(mergedInputs));
+            // Push any local-only inputs to Firebase
+            const remoteInputIds = new Set(remoteInputs.map(r => r.id));
+            for (const inp of localInputs) {
+              if (inp.id && !remoteInputIds.has(inp.id)) {
+                setDocFn(docFn(db, 'users', uid, 'inputs', inp.id), inp).catch(console.error);
               }
             }
 
-            const lSubs = localStorage.getItem(`king-submissions-${uid}`);
-            if (!lSubs || lSubs === '[]') {
-              const snap = await getDocs(collection(db, 'users', uid, 'submissions'));
-              if (snap.docs.length > 0) {
-                localStorage.setItem(`king-submissions-${uid}`, JSON.stringify(snap.docs.map(d => d.data())));
+            // --- Submissions ---
+            const localSubs: any[] = JSON.parse(localStorage.getItem(`king-submissions-${uid}`) || '[]');
+            const subSnap = await getDocs(collection(db, 'users', uid, 'submissions'));
+            const remoteSubs = subSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+            const mergedSubs = mergeById(localSubs, remoteSubs);
+            localStorage.setItem(`king-submissions-${uid}`, JSON.stringify(mergedSubs));
+            // Push any local-only submissions to Firebase
+            const remoteSubIds = new Set(remoteSubs.map(r => r.id));
+            for (const sub of localSubs) {
+              if (sub.id && !remoteSubIds.has(sub.id)) {
+                setDocFn(docFn(db, 'users', uid, 'submissions', sub.id), sub).catch(console.error);
               }
             }
 
-            const lScore = localStorage.getItem(`king-score-${uid}`);
-            if (!lScore || lScore === '[]') {
-              const snap = await getDocs(collection(db, 'users', uid, 'scoreHistory'));
-              if (snap.docs.length > 0) {
-                localStorage.setItem(`king-score-${uid}`, JSON.stringify(snap.docs.map(d => d.data())));
-              }
-            }
+            // --- Score History ---
+            const localScore: any[] = JSON.parse(localStorage.getItem(`king-score-${uid}`) || '[]');
+            const scoreSnap = await getDocs(collection(db, 'users', uid, 'scoreHistory'));
+            const remoteScore = scoreSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+            const mergedScore = mergeById(localScore, remoteScore);
+            localStorage.setItem(`king-score-${uid}`, JSON.stringify(mergedScore));
           } catch (error) {
             console.error('Background sync failed (app still works from local data):', error);
           }
