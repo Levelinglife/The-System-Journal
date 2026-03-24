@@ -143,10 +143,10 @@ export default function App() {
         }
         
         try {
+          let currentProfile = loadProfile(uid);
+
           const userRef = doc(db, 'users', currentUser.uid);
           const userSnap = await getDoc(userRef);
-          
-          let currentProfile = loadProfile(uid);
 
           if (!userSnap.exists()) {
             const initialProfile: UserProfile = {
@@ -206,9 +206,14 @@ export default function App() {
           }
 
         } catch (error) {
-          handleFirestoreError(error, OperationType.GET, `users/${currentUser.uid}`);
+          try {
+            handleFirestoreError(error, OperationType.GET, `users/${currentUser.uid}`);
+          } catch (e) {
+            console.error("Initial auth fetch failed (Local-first active)");
+          }
+        } finally {
+          setLoading(false);
         }
-        setLoading(false);
       } else if (isDevMode) {
         // ─── DEV AUTH BYPASS ───
         const mockUser = {
