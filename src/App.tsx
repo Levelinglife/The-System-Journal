@@ -134,42 +134,45 @@ export default function App() {
           });
         }
         
-        try {
-          let currentProfile = loadProfile(uid);
+        // ─── INSTANT LOAD: Show UI from local data immediately ───
+        const currentProfile = loadProfile(uid);
+        setLoading(false); // UI is ready NOW — no waiting for network
 
-          const userRef = doc(db, 'users', currentUser.uid);
-          const userSnap = await getDoc(userRef);
-
-          if (!userSnap.exists()) {
-            const initialProfile: UserProfile = {
-              streak: 0,
-              score: 0,
-              startDate: todayStr,
-              notificationTime: '08:00',
-              naggingEnabled: true,
-              naggingFrequency: 3,
-              ...currentProfile
-            };
-            
-            const allowedFields = ['streak', 'goalStreak', 'lastCheckin', 'lastGoalCheckin', 'startDate', 'score', 'notificationTime', 'sleepTime', 'workStart', 'workEnd', 'naggingEnabled', 'naggingFrequency', 'weeklyReviewDay', 'weeklyReviewTime', 'quotas', 'graceDaysUsed', 'lastGraceDayWeek'];
-            const sanitizedProfile: any = {};
-            for (const key of Object.keys(initialProfile)) {
-              if (allowedFields.includes(key)) {
-                sanitizedProfile[key] = (initialProfile as any)[key];
-              }
-            }
-            
-            await setDoc(userRef, sanitizedProfile);
-            updateProfile(sanitizedProfile, uid);
-          } else {
-            const remoteData = userSnap.data() as UserProfile;
-            const merged = { ...currentProfile, ...remoteData };
-            updateProfile(merged, uid);
-          }
-
-          // Initial Local-First Sync
-          const { collection, getDocs } = await import('firebase/firestore');
+        // ─── BACKGROUND SYNC: Merge remote data without blocking UI ───
+        (async () => {
           try {
+            const userRef = doc(db, 'users', currentUser.uid);
+            const userSnap = await getDoc(userRef);
+
+            if (!userSnap.exists()) {
+              const initialProfile: UserProfile = {
+                streak: 0,
+                score: 0,
+                startDate: todayStr,
+                notificationTime: '08:00',
+                naggingEnabled: true,
+                naggingFrequency: 3,
+                ...currentProfile
+              };
+              
+              const allowedFields = ['streak', 'goalStreak', 'lastCheckin', 'lastGoalCheckin', 'startDate', 'score', 'notificationTime', 'sleepTime', 'workStart', 'workEnd', 'naggingEnabled', 'naggingFrequency', 'weeklyReviewDay', 'weeklyReviewTime', 'quotas', 'graceDaysUsed', 'lastGraceDayWeek'];
+              const sanitizedProfile: any = {};
+              for (const key of Object.keys(initialProfile)) {
+                if (allowedFields.includes(key)) {
+                  sanitizedProfile[key] = (initialProfile as any)[key];
+                }
+              }
+              
+              await setDoc(userRef, sanitizedProfile);
+              updateProfile(sanitizedProfile, uid);
+            } else {
+              const remoteData = userSnap.data() as UserProfile;
+              const merged = { ...currentProfile, ...remoteData };
+              updateProfile(merged, uid);
+            }
+
+            // Sync collections in background
+            const { collection, getDocs } = await import('firebase/firestore');
             const lInputs = localStorage.getItem(`king-inputs-${uid}`);
             if (!lInputs || lInputs === '[]') {
               const snap = await getDocs(collection(db, 'users', uid, 'inputs'));
@@ -193,19 +196,10 @@ export default function App() {
                 localStorage.setItem(`king-score-${uid}`, JSON.stringify(snap.docs.map(d => d.data())));
               }
             }
-          } catch (syncErr) {
-            console.error('Error syncing backend collections:', syncErr);
+          } catch (error) {
+            console.error('Background sync failed (app still works from local data):', error);
           }
-
-        } catch (error) {
-          try {
-            handleFirestoreError(error, OperationType.GET, `users/${currentUser.uid}`);
-          } catch (e) {
-            console.error("Initial auth fetch failed (Local-first active)");
-          }
-        } finally {
-          setLoading(false);
-        }
+        })();
       } else if (isDevMode) {
         // ─── DEV AUTH BYPASS ───
         const mockUser = {
