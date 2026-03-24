@@ -17,6 +17,31 @@
 
 <body>
   <div id="root"></div>
+  <script>
+    // One-time cleanup: nuke old stale service workers and caches
+    // This runs BEFORE React loads to break the stale cache cycle
+    (function() {
+      var CLEANUP_VERSION = 'v2'; // Bump this to force another cleanup
+      if (localStorage.getItem('sw-cleanup') !== CLEANUP_VERSION) {
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.getRegistrations().then(function(registrations) {
+            registrations.forEach(function(reg) { reg.unregister(); });
+          });
+        }
+        if ('caches' in window) {
+          caches.keys().then(function(names) {
+            names.forEach(function(name) { caches.delete(name); });
+          });
+        }
+        localStorage.setItem('sw-cleanup', CLEANUP_VERSION);
+        // Reload once to get fresh content after clearing caches
+        if (!sessionStorage.getItem('sw-reloaded')) {
+          sessionStorage.setItem('sw-reloaded', '1');
+          location.reload();
+        }
+      }
+    })();
+  </script>
   <script type="module" src="/src/main.tsx"></script>
 </body>
 
